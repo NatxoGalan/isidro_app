@@ -87,7 +87,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                         Row(
                           children: [
                             Text(
-                              'Isidro Bar',
+                              'LaSede',
                               style: GoogleFonts.inter(
                                 fontSize: 34,
                                 fontWeight: FontWeight.w700,

@@ -69,7 +69,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'Isidro Bar',
+                    'LaSede',
                     style: GoogleFonts.inter(
                       fontSize: 28,
                       fontWeight: FontWeight.w700,

@@ -1,4 +1,4 @@
-package com.example.isidro_app
+package com.example.lasede_app
 
 import io.flutter.embedding.android.FlutterActivity
 

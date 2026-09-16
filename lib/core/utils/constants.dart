@@ -1,5 +1,5 @@
 class Constants {
-  static const String appName = 'Isidro App';
+  static const String appName = 'LaSede';
   static const String appVersion = '1.0.0';
   static const String collectionVenues = 'venues';
   static const String collectionZones = 'zones';
@@ -10,7 +10,7 @@ class Constants {
   static const String collectionPayments = 'payments';
   static const String collectionUsers = 'users';
   static const String defaultVenueId = 'isidro-bar';
-  static const String defaultVenueName = 'Bar Isidro';
+  static const String defaultVenueName = 'LaSede';
   static const String currencySymbol = '€';
   static const String statusFree = 'free';
   static const String statusOccupied = 'occupied';
