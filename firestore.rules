@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow all operations for any authenticated user
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    // Also allow unauthenticated reads for public data (menus, tables)
+    match /tables/{tableId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /categories/{catId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /products/{prodId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /orders/{orderId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

@@ -1,0 +1,855 @@
+import 'dart:ui';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../config/theme.dart';
+import '../../core/utils/formatters.dart';
+import '../../data/models/order_dto.dart';
+import '../../data/models/print_dto.dart';
+import '../../services/esc_pos_generator.dart';
+import '../providers/cart_provider.dart';
+import '../providers/product_provider.dart';
+import '../providers/printer_provider.dart';
+import '../widgets/product_search_bar.dart';
+import '../widgets/category_chips.dart';
+import '../widgets/product_picker_card.dart';
+
+class TableDetailScreen extends ConsumerStatefulWidget {
+  final String tableId;
+  const TableDetailScreen({super.key, required this.tableId});
+
+  @override
+  ConsumerState<TableDetailScreen> createState() => _TableDetailScreenState();
+}
+
+class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
+  String _selectedCategory = 'Todos';
+  String _searchQuery = '';
+  bool _showProductPicker = false;
+
+  static const Map<String, String> _categorySlugs = {
+    'Todos': '',
+    'Tapas': 'tapas',
+    'Bocadillos': 'bocadillos',
+    'Bebidas': 'bebidas',
+    'Varios': 'varios',
+    'Cafetería': 'cafeteria',
+  };
+
+  String get _selectedCategorySlug => _categorySlugs[_selectedCategory] ?? '';
+
+  @override
+  Widget build(BuildContext context) {
+    final cart = ref.watch(cartProvider);
+    final tableNumber = cart.tableNumber ?? widget.tableId;
+    final hasItems = cart.items.isNotEmpty;
+
+    return Scaffold(
+      backgroundColor: AppColors.systemBackground,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(cart, tableNumber, hasItems),
+            Expanded(
+              child: _showProductPicker
+                  ? _buildProductPicker()
+                  : hasItems
+                      ? _buildCartView(cart, tableNumber)
+                      : _buildEmptyState(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(CartState cart, String tableNumber, bool hasItems) {
+    final itemCount = cart.itemCount;
+
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 8, 16, 16),
+          decoration: BoxDecoration(
+            color: AppColors.systemBackground.withValues(alpha: 0.85),
+            border: const Border(bottom: BorderSide(color: AppColors.separator, width: 0.5)),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => context.pop(),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppColors.gray5,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: AppColors.blue),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Mesa $tableNumber',
+                              style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.label),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: hasItems ? AppColors.orange.withValues(alpha: 0.12) : AppColors.green.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                hasItems ? '$itemCount items' : 'Abierta',
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: hasItems ? AppColors.orange : AppColors.green,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          hasItems
+                              ? '${cart.itemCount} productos · ${Formatters.currency(cart.subtotal)}'
+                              : 'Sin productos aún',
+                          style: GoogleFonts.inter(fontSize: 13, color: AppColors.secondaryLabel),
+                        ),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => setState(() => _showProductPicker = true),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppColors.blue,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppColors.blue.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.receipt_long_rounded, size: 56, color: AppColors.blue.withValues(alpha: 0.5)),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Comanda vacía',
+              style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.label),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Añade productos para empezar',
+              style: GoogleFonts.inter(fontSize: 15, color: AppColors.secondaryLabel),
+            ),
+            const SizedBox(height: 28),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.add_rounded, size: 20),
+                label: Text('Añadir productos', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600)),
+                onPressed: () => setState(() => _showProductPicker = true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.blue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCartView(CartState cart, String tableNumber) {
+    return Column(
+      children: [
+        // Items list
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            itemCount: cart.items.length,
+            separatorBuilder: (_, _) => Container(
+              height: 0.5,
+              color: AppColors.separator,
+              margin: const EdgeInsets.only(left: 16),
+            ),
+            itemBuilder: (context, index) {
+              final item = cart.items[index];
+              return _CartItemCard(item: item);
+            },
+          ),
+        ),
+        // Notes
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: TextField(
+            controller: TextEditingController(text: cart.kitchenNotes),
+            onChanged: (v) => ref.read(cartProvider.notifier).setKitchenNotes(v),
+            maxLines: 2,
+            style: GoogleFonts.inter(fontSize: 14, color: AppColors.label),
+            decoration: InputDecoration(
+              hintText: 'Notas generales...',
+              hintStyle: GoogleFonts.inter(color: AppColors.gray2, fontSize: 14),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.separator, width: 0.5),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.separator, width: 0.5),
+              ),
+              prefixIcon: const Icon(Icons.note_alt_outlined, size: 18, color: AppColors.gray2),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+        ),
+        // Total
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.separator.withValues(alpha: 0.5), width: 0.5),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Total', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.label)),
+              Text(Formatters.currency(cart.total), style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.green)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Action buttons
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.print_rounded, size: 18),
+                    label: Text('Cocina', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14)),
+                    onPressed: () => _sendToKitchen(cart, tableNumber),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.orange,
+                      backgroundColor: AppColors.orange.withValues(alpha: 0.08),
+                      side: BorderSide.none,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.payment_rounded, size: 18),
+                    label: Text('Cerrar y pagar', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14)),
+                    onPressed: () => _closeAndPay(cart, tableNumber),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.green,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Add more
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: Text('Añadir más', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14)),
+              onPressed: () => setState(() => _showProductPicker = true),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.blue,
+                backgroundColor: AppColors.blue.withValues(alpha: 0.06),
+                side: BorderSide.none,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProductPicker() {
+    final productsAsync = ref.watch(productsProvider);
+
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 8, 16, 12),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(bottom: BorderSide(color: AppColors.separator, width: 0.5)),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => setState(() => _showProductPicker = false),
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: AppColors.gray5,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: AppColors.blue),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ProductSearchBar(
+                      query: _searchQuery,
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              CategoryChips(
+                categories: const ['Todos', 'Tapas', 'Bocadillos', 'Bebidas', 'Varios', 'Cafetería'],
+                selected: _selectedCategory,
+                onChanged: (c) => setState(() => _selectedCategory = c),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: productsAsync.when(
+            data: (products) {
+              final filtered = products.where((p) {
+                final matchesCategory = _selectedCategory == 'Todos' || p.categoryId == _selectedCategorySlug;
+                final matchesSearch = _searchQuery.isEmpty || p.name.toLowerCase().contains(_searchQuery.toLowerCase());
+                return matchesCategory && matchesSearch;
+              }).toList();
+
+              if (filtered.isEmpty) {
+                return Center(
+                  child: Text('No hay productos', style: GoogleFonts.inter(color: AppColors.secondaryLabel, fontSize: 15)),
+                );
+              }
+
+              return GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 1.1,
+                ),
+                itemCount: filtered.length,
+                itemBuilder: (context, index) {
+                  final p = filtered[index];
+                  return ProductPickerCard(
+                    product: p,
+                    onAdd: () {
+                      ref.read(cartProvider.notifier).addItem(OrderItemEntity(
+                        itemId: 'item_${DateTime.now().millisecondsSinceEpoch}',
+                        productId: p.id,
+                        productName: p.name,
+                        quantity: 1,
+                        unitPrice: p.basePrice,
+                        totalPrice: p.basePrice,
+                        modifiers: [],
+                        notes: '',
+                        isTakeaway: false,
+                        status: OrderItemStatus.pending,
+                        createdAt: DateTime.now(),
+                      ));
+                      setState(() => _showProductPicker = false);
+                    },
+                  );
+                },
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator(color: AppColors.blue)),
+            error: (e, _) => Center(child: Text('Error: $e')),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendToKitchen(CartState cart, String tableNumber) {
+    if (cart.isEmpty) return;
+
+    final itemNotesList = cart.items
+        .where((i) => i.notes.isNotEmpty)
+        .map((i) => '${i.productName}: ${i.notes}')
+        .toList();
+    final allItemNotes = itemNotesList.join('\n');
+
+    final combinedNotes = [
+      if (cart.kitchenNotes.isNotEmpty) cart.kitchenNotes,
+      if (allItemNotes.isNotEmpty) '--- Notas por plato ---\n$allItemNotes',
+    ].join('\n');
+
+    final escPosBytes = EscPosGenerator.generateKitchenTicket(
+      orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'draft',
+      tableNumber: tableNumber,
+      items: cart.items.map((i) => i.toOrderItemData()).toList(),
+      notes: combinedNotes.isNotEmpty ? combinedNotes : null,
+      kitchenNotes: null,
+      createdAt: DateTime.now(),
+    );
+
+    final escPosHex = EscPosGenerator.bytesToHex(escPosBytes);
+
+    final printItems = cart.items.map((i) => PrintItemData(
+      productId: i.productId,
+      name: i.productName,
+      quantity: i.quantity,
+      unitPrice: i.unitPrice,
+      modifiers: i.modifiers.map((m) => m.optionName ?? m.modifierName).toList(),
+      notes: i.notes,
+      isTakeaway: i.isTakeaway,
+    )).toList();
+
+    ref.read(printQueueProvider.notifier).addTicket(
+      orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'draft',
+      tableNumber: tableNumber,
+      type: PrintType.kitchen,
+      items: printItems,
+      notes: combinedNotes.isNotEmpty ? combinedNotes : null,
+      escPosHex: escPosHex,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: const Text('Comanda enviada a cocina'), backgroundColor: AppColors.green),
+    );
+  }
+
+  void _closeAndPay(CartState cart, String tableNumber) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _PaymentSheet(
+        total: cart.total,
+        items: cart.items,
+        tableNumber: tableNumber,
+        subtotal: cart.subtotal,
+        onPaid: (paymentMethod) async {
+          final escPosBytes = EscPosGenerator.generateBillTicket(
+            orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'bill',
+            tableNumber: tableNumber,
+            items: cart.items.map((i) => i.toOrderItemData()).toList(),
+            subtotal: cart.subtotal,
+            tax: 0,
+            total: cart.total,
+            paymentMethod: paymentMethod,
+            createdAt: DateTime.now(),
+          );
+
+          final escPosHex = EscPosGenerator.bytesToHex(escPosBytes);
+
+          final printItems = cart.items.map((i) => PrintItemData(
+            productId: i.productId,
+            name: i.productName,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            modifiers: i.modifiers.map((m) => m.optionName ?? m.modifierName).toList(),
+            notes: i.notes,
+            isTakeaway: i.isTakeaway,
+          )).toList();
+
+          ref.read(printQueueProvider.notifier).addTicket(
+            orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'bill',
+            tableNumber: tableNumber,
+            type: PrintType.bill,
+            items: printItems,
+            notes: paymentMethod,
+            escPosHex: escPosHex,
+          );
+
+          await ref.read(cartProvider.notifier).closeTable();
+
+          if (context.mounted) {
+            Navigator.of(context).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Pago completado. Mesa liberada'),
+                backgroundColor: AppColors.green,
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }
+}
+
+// ── Cart Item Card ───────────────────────────────────────────────────
+class _CartItemCard extends ConsumerWidget {
+  final OrderItemEntity item;
+  const _CartItemCard({required this.item});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final lineTotal = item.unitPrice * item.quantity;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  item.productName,
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 15, color: AppColors.label),
+                ),
+              ),
+              Text(
+                Formatters.currency(lineTotal),
+                style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.blue),
+              ),
+            ],
+          ),
+          if (item.notes.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              item.notes,
+              style: GoogleFonts.inter(fontSize: 12, color: AppColors.secondaryLabel, fontStyle: FontStyle.italic),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: AppColors.gray6,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: TextField(
+                    controller: TextEditingController(text: item.notes),
+                    onChanged: (v) => ref.read(cartProvider.notifier).updateItemNotes(item.itemId, v),
+                    style: GoogleFonts.inter(fontSize: 12, color: AppColors.label),
+                    decoration: InputDecoration(
+                      hintText: 'Nota...',
+                      hintStyle: GoogleFonts.inter(fontSize: 12, color: AppColors.gray2),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      border: InputBorder.none,
+                      prefixIcon: const Icon(Icons.note_alt_outlined, size: 14, color: AppColors.gray2),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 24, minHeight: 0),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // iOS-style stepper
+              Container(
+                height: 32,
+                decoration: BoxDecoration(
+                  color: AppColors.gray6,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _StepperButton(
+                      icon: Icons.remove_rounded,
+                      onTap: () => ref.read(cartProvider.notifier).updateQuantity(item.itemId, item.quantity - 1),
+                    ),
+                    SizedBox(
+                      width: 32,
+                      child: Center(
+                        child: Text(
+                          '${item.quantity}',
+                          style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.label),
+                        ),
+                      ),
+                    ),
+                    _StepperButton(
+                      icon: Icons.add_rounded,
+                      onTap: () => ref.read(cartProvider.notifier).updateQuantity(item.itemId, item.quantity + 1),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: () => ref.read(cartProvider.notifier).removeItem(item.itemId),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: AppColors.red.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.red),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepperButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _StepperButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 32,
+        height: 32,
+        child: Icon(icon, size: 18, color: AppColors.blue),
+      ),
+    );
+  }
+}
+
+// ── Payment Sheet ────────────────────────────────────────────────────
+class _PaymentSheet extends ConsumerStatefulWidget {
+  final double total;
+  final double subtotal;
+  final Function(String paymentMethod) onPaid;
+  final List<OrderItemEntity> items;
+  final String tableNumber;
+
+  const _PaymentSheet({
+    required this.total,
+    required this.subtotal,
+    required this.onPaid,
+    required this.items,
+    required this.tableNumber,
+  });
+
+  @override
+  ConsumerState<_PaymentSheet> createState() => _PaymentSheetState();
+}
+
+class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
+  String _method = 'cash';
+  String _cashInput = '';
+  double _change = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Drag handle
+            Center(
+              child: Container(
+                width: 36,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: AppColors.gray4,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Text('Cobro', style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.label)),
+                const Spacer(),
+                Text(Formatters.currency(widget.total), style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.green)),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(color: AppColors.gray5, borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.close_rounded, size: 18, color: AppColors.gray1),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Method selector
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.gray6,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.all(3),
+              child: Row(
+                children: [
+                  _MethodOption(label: 'Efectivo', value: 'cash', selected: _method, onChanged: (v) => setState(() => _method = v)),
+                  _MethodOption(label: 'Tarjeta', value: 'card', selected: _method, onChanged: (v) => setState(() => _method = v)),
+                  _MethodOption(label: 'Invitación', value: 'invitation', selected: _method, onChanged: (v) => setState(() => _method = v)),
+                ],
+              ),
+            ),
+            if (_method == 'cash') ...[
+              const SizedBox(height: 16),
+              TextField(
+                onChanged: (v) {
+                  setState(() {
+                    _cashInput = v;
+                    final received = double.tryParse(v) ?? 0;
+                    _change = received - widget.total;
+                  });
+                },
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: GoogleFonts.inter(fontSize: 16, color: AppColors.label),
+                decoration: InputDecoration(
+                  labelText: 'Importe recibido',
+                  prefixText: '€ ',
+                  labelStyle: GoogleFonts.inter(color: AppColors.secondaryLabel),
+                ),
+              ),
+              if (_cashInput.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Cambio: ${Formatters.currency(_change)}',
+                  style: GoogleFonts.inter(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: _change >= 0 ? AppColors.green : AppColors.red,
+                  ),
+                ),
+              ],
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _canPay() ? _confirmPayment : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: Text('Confirmar pago', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700)),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _canPay() {
+    if (_method == 'cash') return _cashInput.isNotEmpty && (double.tryParse(_cashInput) ?? 0) >= widget.total;
+    return true;
+  }
+
+  void _confirmPayment() {
+    widget.onPaid(_method);
+  }
+}
+
+class _MethodOption extends StatelessWidget {
+  final String label;
+  final String value;
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  const _MethodOption({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = value == selected;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => onChanged(value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: isSelected
+                ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                : null,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+              color: isSelected ? AppColors.label : AppColors.gray1,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
