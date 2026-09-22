@@ -8,6 +8,7 @@ import '../../core/utils/formatters.dart';
 import '../../data/models/order_dto.dart';
 import '../../data/models/print_dto.dart';
 import '../../services/esc_pos_generator.dart';
+import '../../services/printer_service.dart';
 import '../providers/cart_provider.dart';
 import '../providers/product_provider.dart';
 import '../providers/printer_provider.dart';
@@ -427,7 +428,7 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
     );
   }
 
-  void _sendToKitchen(CartState cart, String tableNumber) {
+  void _sendToKitchen(CartState cart, String tableNumber) async {
     if (cart.isEmpty) return;
 
     final itemNotesList = cart.items
@@ -471,9 +472,26 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
       escPosHex: escPosHex,
     );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: const Text('Comanda enviada a cocina'), backgroundColor: AppColors.green),
-    );
+    final printed = await ref.read(realPrinterProvider.notifier).printTicket(escPosHex);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                printed ? Icons.check_circle : Icons.info_outline,
+                color: Colors.white,
+                size: 18,
+              ),
+              const SizedBox(width: 10),
+              Text(printed ? 'Comanda enviada e impresa' : 'Comanda encolada (impresora no disponible)'),
+            ],
+          ),
+          backgroundColor: printed ? AppColors.green : AppColors.orange,
+        ),
+      );
+    }
   }
 
   void _closeAndPay(CartState cart, String tableNumber) {

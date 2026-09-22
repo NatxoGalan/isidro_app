@@ -23,6 +23,7 @@ dependencies:
   intl: ^0.20.0
   uuid: ^4.4.0
   shared_preferences: ^2.3.0
+  sunmi_printer_plus: ^4.1.1
   flutter_localizations:
     sdk: flutter
 
@@ -34,6 +35,19 @@ dev_dependencies:
   mockito: ^5.4.6
   build_runner: ^2.4.12
   riverpod_generator: ^2.5.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "lib/images/logo.jpeg"
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "lib/images/logo.jpeg"
+  web:
+    generate: true
+    image_path: "lib/images/logo.jpeg"
+    background_color: "#000000"
+    theme_color: "#000000"

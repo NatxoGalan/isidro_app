@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../../data/models/print_dto.dart';
 import '../../data/models/order_dto.dart';
 import '../../services/esc_pos_generator.dart';
+import '../../services/printer_service.dart';
 
 /// Provider para la cola de impresión
 final printQueueProvider = StateNotifierProvider<PrintQueueNotifier, List<PrintQueueTicket>>((ref) {
@@ -222,4 +223,40 @@ final billTicketGeneratorProvider = Provider<Function({
 
     return EscPosGenerator.bytesToHex(bytes);
   };
+});
+
+/// Estado de conexión de la impresora Sunmi
+final printerConnectionProvider = StateProvider<PrinterConnectionStatus>((ref) {
+  return PrinterConnectionStatus.disconnected;
+});
+
+/// Notificador para manejar impresión real
+class RealPrinterNotifier extends StateNotifier<AsyncValue<bool>> {
+  RealPrinterNotifier() : super(const AsyncValue.data(false));
+
+  Future<bool> testConnection() async {
+    state = const AsyncValue.loading();
+    try {
+      final status = await PrinterService.checkConnection();
+      final connected = status == PrinterConnectionStatus.connected;
+      state = AsyncValue.data(connected);
+      return connected;
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
+      return false;
+    }
+  }
+
+  Future<bool> printTicket(String escPosHex) async {
+    try {
+      final result = await PrinterService.printTicket(escPosHex);
+      return result;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+final realPrinterProvider = StateNotifierProvider<RealPrinterNotifier, AsyncValue<bool>>((ref) {
+  return RealPrinterNotifier();
 });

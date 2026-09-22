@@ -18,7 +18,14 @@ class TableNotifier extends StateNotifier<AsyncValue<List<TableEntity>>> {
     state = const AsyncValue.loading();
     _subscription = _tableRepository.watchTables(venueId).listen(
       (tables) {
-        if (mounted) state = AsyncValue.data(tables);
+        if (mounted) {
+          tables.sort((a, b) {
+            final numA = int.tryParse(a.tableNumber) ?? 0;
+            final numB = int.tryParse(b.tableNumber) ?? 0;
+            return numA.compareTo(numB);
+          });
+          state = AsyncValue.data(tables);
+        }
       },
       onError: (e) {
         if (mounted) state = AsyncValue.error(e, StackTrace.current);
