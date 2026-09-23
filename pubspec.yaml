@@ -23,7 +23,6 @@ dependencies:
   intl: ^0.20.0
   uuid: ^4.4.0
   shared_preferences: ^2.3.0
-  sunmi_printer_plus: ^4.1.1
   flutter_localizations:
     sdk: flutter
 

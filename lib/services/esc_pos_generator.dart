@@ -11,98 +11,131 @@ class EscPosGenerator {
   static const List<int> _boldOn = [0x1B, 0x45, 1]; // ESC E 1 - Bold on
   static const List<int> _boldOff = [0x1B, 0x45, 0]; // ESC E 0 - Bold off
   static const List<int> _doubleSize = [0x1B, 0x21, 0x30]; // ESC ! 48 - Double height/width
+  static const List<int> _doubleHeight = [0x1B, 0x21, 0x10]; // ESC ! 16 - Double height
   static const List<int> _normalSize = [0x1B, 0x21, 0x00]; // ESC ! 0 - Normal size
   static const List<int> _centerAlign = [0x1B, 0x61, 1]; // ESC a 1 - Center align
   static const List<int> _leftAlign = [0x1B, 0x61, 0]; // ESC a 0 - Left align
-  static const List<int> _underlineOn = [0x1B, 0x2D, 1]; // ESC - 1 - Underline on
-  static const List<int> _underlineOff = [0x1B, 0x2D, 0]; // ESC - 0 - Underline off
 
-  /// Genera ticket de cocina para una orden
+  /// Ancho de papel 80mm en caracteres (modo normal)
+  static const int _cols = 42;
+  static String get _sep => ''.padRight(_cols, '-');
+
+  /// Codifica texto en latin1 (tildes/ñ de la codepage típica ESC/POS).
+  /// Los caracteres fuera de latin1 se sustituyen por '?'.
+  static List<int> _enc(String s) {
+    final out = <int>[];
+    for (final r in s.runes) {
+      out.add(r < 256 ? r : 0x3F);
+    }
+    return out;
+  }
+
+  /// Precio en formato español: 9,50
+  static String _price(double v) => v.toStringAsFixed(2).replaceAll('.', ',');
+
+  /// 22/09 19:15
+  static String _fmtShort(DateTime dt) {
+    final d = dt.day.toString().padLeft(2, '0');
+    final m = dt.month.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final min = dt.minute.toString().padLeft(2, '0');
+    return '$d/$m $h:$min';
+  }
+
+  /// 22/9/2026 - 19:16:08
+  static String _fmtLong(DateTime dt) {
+    final h = dt.hour.toString().padLeft(2, '0');
+    final min = dt.minute.toString().padLeft(2, '0');
+    final s = dt.second.toString().padLeft(2, '0');
+    return '${dt.day}/${dt.month}/${dt.year} - $h:$min:$s';
+  }
+
+  static String _truncate(String s, int max) {
+    if (s.length <= max) return s;
+    return s.substring(0, max);
+  }
+
+  /// Genera ticket de cocina "Nuevo pedido" para una orden
   static List<int> generateKitchenTicket({
     required String orderId,
     required String tableNumber,
     required List<OrderItemData> items,
     String? notes,
     String? kitchenNotes,
+    String? waiterName,
     required DateTime createdAt,
   }) {
     final bytes = <int>[];
-    
-    // Initialize
+
     bytes.addAll(_init);
-    
-    // Header
+
+    // Título
     bytes.addAll(_centerAlign);
+    bytes.addAll(_enc('Nuevo pedido\n'));
+    bytes.addAll(_enc('$_sep\n'));
+
+    // Mesa en grande
+    bytes.addAll(_leftAlign);
     bytes.addAll(_boldOn);
     bytes.addAll(_doubleSize);
-    bytes.addAll(utf8.encode('COCINA\n'));
+    bytes.addAll(_enc('Mesa: $tableNumber\n'));
     bytes.addAll(_normalSize);
     bytes.addAll(_boldOff);
-    bytes.addAll(utf8.encode('================\n'));
-    
-    // Mesa y orden
-    bytes.addAll(utf8.encode('Mesa: $tableNumber\n'));
-    bytes.addAll(utf8.encode('Orden: ${orderId.substring(0, 8)}\n'));
-    bytes.addAll(utf8.encode('Fecha: ${_formatDateTime(createdAt)}\n'));
-    bytes.addAll(utf8.encode('================\n'));
-    
-    // Items
-    bytes.addAll(_leftAlign);
+
+    // Camarero y fecha
+    if (waiterName != null && waiterName.isNotEmpty) {
+      bytes.addAll(_enc('Por: $waiterName\n'));
+    }
+    bytes.addAll(_enc('${_fmtShort(createdAt)}\n'));
+    bytes.addAll(_enc('$_sep\n'));
+
+    // Items en grande con sus notas
+    var totalPlatos = 0;
     for (final item in items) {
-      // Nombre y cantidad
+      totalPlatos += item.quantity;
       bytes.addAll(_boldOn);
-      bytes.addAll(utf8.encode('${item.quantity}x ${item.name}\n'));
+      bytes.addAll(_doubleHeight);
+      bytes.addAll(_enc('${item.quantity}x ${item.name}\n'));
+      bytes.addAll(_normalSize);
       bytes.addAll(_boldOff);
-      
-      // Modificadores
-      if (item.modifiers.isNotEmpty) {
-        for (final mod in item.modifiers) {
-          bytes.addAll(utf8.encode('  + ${mod.name}\n'));
-        }
+
+      for (final mod in item.modifiers) {
+        bytes.addAll(_enc('  + ${mod.name}\n'));
       }
-      
-      // Notas del item
+
+      // Nota del producto (si tiene)
       if (item.notes.isNotEmpty) {
-        bytes.addAll(_underlineOn);
-        bytes.addAll(utf8.encode('  Nota: ${item.notes}\n'));
-        bytes.addAll(_underlineOff);
+        bytes.addAll(_boldOn);
+        bytes.addAll(_enc('  >> ${item.notes}\n'));
+        bytes.addAll(_boldOff);
       }
-      
-      // Takeaway
+
       if (item.isTakeaway) {
-        bytes.addAll(utf8.encode('  *** PARA LLEVAR ***\n'));
+        bytes.addAll(_enc('  *** PARA LLEVAR ***\n'));
       }
-      
-      bytes.addAll(utf8.encode('\n'));
+
+      bytes.addAll(_enc('\n'));
     }
-    
+
     // Notas de cocina
-    if (kitchenNotes != null && kitchenNotes.isNotEmpty) {
-      bytes.addAll(utf8.encode('================\n'));
-      bytes.addAll(_underlineOn);
+    final extraNotes = [
+      if (kitchenNotes != null && kitchenNotes.isNotEmpty) kitchenNotes,
+      if (notes != null && notes.isNotEmpty) notes,
+    ].join('\n');
+    if (extraNotes.isNotEmpty) {
+      bytes.addAll(_enc('$_sep\n'));
       bytes.addAll(_boldOn);
-      bytes.addAll(utf8.encode('NOTAS COCINA:\n'));
+      bytes.addAll(_enc('NOTAS:\n'));
       bytes.addAll(_boldOff);
-      bytes.addAll(utf8.encode(kitchenNotes));
-      bytes.addAll(_underlineOff);
-      bytes.addAll(utf8.encode('\n'));
+      bytes.addAll(_enc('$extraNotes\n'));
     }
-    
-    // Notas generales
-    if (notes != null && notes.isNotEmpty) {
-      bytes.addAll(utf8.encode('================\n'));
-      bytes.addAll(utf8.encode('NOTAS: $notes\n'));
-    }
-    
-    // Footer
-    bytes.addAll(utf8.encode('================\n'));
-    bytes.addAll(_centerAlign);
-    bytes.addAll(utf8.encode('--- FIN COMANDA ---\n'));
-    
-    // Cut and feed
+
+    bytes.addAll(_enc('$_sep\n'));
+    bytes.addAll(_enc('Total platos: $totalPlatos\n'));
+
     bytes.addAll(_feedLines);
     bytes.addAll(_cut);
-    
+
     return bytes;
   }
 
@@ -164,7 +197,7 @@ class EscPosGenerator {
     return bytes;
   }
 
-  /// Genera ticket de cuenta/cobro
+  /// Genera factura proforma (ticket de cuenta antes de cerrar la mesa)
   static List<int> generateBillTicket({
     required String orderId,
     required String tableNumber,
@@ -173,50 +206,105 @@ class EscPosGenerator {
     required double tax,
     required double total,
     String? paymentMethod,
+    String? waiterName,
+    String venueName = 'La Sede',
     required DateTime createdAt,
   }) {
     final bytes = <int>[];
-    
+
     bytes.addAll(_init);
-    
-    // Header
+
+    // Cabecera
     bytes.addAll(_centerAlign);
     bytes.addAll(_boldOn);
-    bytes.addAll(_doubleSize);
-    bytes.addAll(utf8.encode('CUENTA\n'));
+    bytes.addAll(_doubleHeight);
+    bytes.addAll(_enc('$venueName\n'));
     bytes.addAll(_normalSize);
+    bytes.addAll(_enc('Factura proforma\n'));
     bytes.addAll(_boldOff);
-    bytes.addAll(utf8.encode('================\n'));
-    
+    bytes.addAll(_enc('${_fmtLong(createdAt)}\n'));
+
+    // Atendido por + Mesa en la misma línea
     bytes.addAll(_leftAlign);
-    bytes.addAll(utf8.encode('Mesa: $tableNumber\n'));
-    bytes.addAll(utf8.encode('Orden: ${orderId.substring(0, 8)}\n'));
-    bytes.addAll(utf8.encode('Fecha: ${_formatDateTime(createdAt)}\n'));
-    bytes.addAll(utf8.encode('================\n'));
-    
+    final mesa = 'Mesa: $tableNumber';
+    var left = 'Atendido por: ${(waiterName ?? '').trim()}';
+    final gap = _cols - left.length - mesa.length;
+    if (gap >= 1) {
+      left = '$left${''.padRight(gap)}$mesa';
+    } else {
+      left = '${_truncate(left, _cols - mesa.length - 1)} $mesa';
+    }
+    bytes.addAll(_enc('$left\n'));
+
+    // Cabecera de columnas: UND NOMBRE | PVP | IMP
+    const qtyW = 4; // "1 x "
+    const pvpW = 7;
+    const impW = 7;
+    final nameW = _cols - qtyW - pvpW - impW;
+    final header = '${'UND'.padRight(qtyW)}${'NOMBRE'.padRight(nameW)}${'PVP'.padLeft(pvpW)}${'IMP'.padLeft(impW)}';
+    bytes.addAll(_boldOn);
+    bytes.addAll(_enc('$header\n'));
+    bytes.addAll(_boldOff);
+
+    // Items
     for (final item in items) {
       final itemTotal = item.unitPrice * item.quantity;
-      bytes.addAll(utf8.encode('${item.quantity}x ${item.name}  ${itemTotal.toStringAsFixed(2)}€\n'));
+      final qty = '${item.quantity} x ';
+      final name = _truncate(item.name, nameW);
+      final line = '${qty.padRight(qtyW)}${name.padRight(nameW)}'
+          '${_price(item.unitPrice).padLeft(pvpW)}${_price(itemTotal).padLeft(impW)}';
+      bytes.addAll(_enc('$line\n'));
     }
-    
-    bytes.addAll(utf8.encode('================\n'));
-    bytes.addAll(utf8.encode('Subtotal: ${subtotal.toStringAsFixed(2)}€\n'));
-    bytes.addAll(utf8.encode('IVA: ${tax.toStringAsFixed(2)}€\n'));
+
+    bytes.addAll(_enc('$_sep\n'));
+
+    // Total en grande
+    final totalStr = _price(total);
     bytes.addAll(_boldOn);
-    bytes.addAll(utf8.encode('TOTAL: ${total.toStringAsFixed(2)}€\n'));
+    bytes.addAll(_doubleHeight);
+    bytes.addAll(_enc('${'Total'.padRight(_cols - totalStr.length)}$totalStr\n'));
+    bytes.addAll(_normalSize);
     bytes.addAll(_boldOff);
-    
-    if (paymentMethod != null) {
-      bytes.addAll(utf8.encode('Método: $paymentMethod\n'));
+
+    if (paymentMethod != null && paymentMethod.isNotEmpty) {
+      bytes.addAll(_enc('Pagado: $paymentMethod\n'));
     }
-    
-    bytes.addAll(utf8.encode('================\n'));
+
+    bytes.addAll(_enc('$_sep\n'));
     bytes.addAll(_centerAlign);
-    bytes.addAll(utf8.encode('¡GRACIAS POR SU VISITA!\n'));
-    
+    bytes.addAll(_boldOn);
+    bytes.addAll(_enc('Gracias por su visita\n'));
+    bytes.addAll(_boldOff);
+
     bytes.addAll(_feedLines);
     bytes.addAll(_cut);
-    
+
+    return bytes;
+  }
+
+  /// Genera ticket de prueba de impresora
+  static List<int> generateTestTicket({
+    required String printerName,
+    required String ip,
+  }) {
+    final bytes = <int>[];
+
+    bytes.addAll(_init);
+    bytes.addAll(_centerAlign);
+    bytes.addAll(_boldOn);
+    bytes.addAll(_doubleHeight);
+    bytes.addAll(_enc('PRUEBA\n'));
+    bytes.addAll(_normalSize);
+    bytes.addAll(_boldOff);
+    bytes.addAll(_enc('$printerName\n'));
+    bytes.addAll(_enc('$ip\n'));
+    bytes.addAll(_enc('${_fmtLong(DateTime.now())}\n'));
+    bytes.addAll(_enc('$_sep\n'));
+    bytes.addAll(_enc('Impresora OK\n'));
+
+    bytes.addAll(_feedLines);
+    bytes.addAll(_cut);
+
     return bytes;
   }
 

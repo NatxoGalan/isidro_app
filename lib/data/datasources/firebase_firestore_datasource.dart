@@ -4,6 +4,7 @@ import '../models/table_dto.dart';
 import '../models/order_dto.dart';
 import '../models/product_dto.dart';
 import '../models/category_dto.dart';
+import '../models/printer_dto.dart';
 
 class FirebaseFirestoreDatasource {
   final FirebaseFirestore _firestore;
@@ -168,5 +169,30 @@ class FirebaseFirestoreDatasource {
 
   Future<void> deleteTable(String tableId) async {
     await _firestore.collection(Constants.collectionTables).doc(tableId).delete();
+  }
+
+  CollectionReference<Map<String, dynamic>> _printersRef(String venueId) {
+    return _firestore
+        .collection(Constants.collectionVenues)
+        .doc(venueId)
+        .collection(Constants.collectionPrinters);
+  }
+
+  Stream<List<PrinterEntity>> watchPrinters(String venueId) {
+    return _printersRef(venueId).snapshots().map((snapshot) =>
+        snapshot.docs.map((doc) => PrinterEntity.fromFirestore(doc)).toList());
+  }
+
+  Future<String> addPrinter(String venueId, Map<String, dynamic> data) async {
+    final ref = await _printersRef(venueId).add(data);
+    return ref.id;
+  }
+
+  Future<void> updatePrinter(String venueId, String printerId, Map<String, dynamic> data) async {
+    await _printersRef(venueId).doc(printerId).update(data);
+  }
+
+  Future<void> deletePrinter(String venueId, String printerId) async {
+    await _printersRef(venueId).doc(printerId).delete();
   }
 }

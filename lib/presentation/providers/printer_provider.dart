@@ -1,9 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import '../../core/utils/constants.dart';
 import '../../data/models/print_dto.dart';
 import '../../data/models/order_dto.dart';
+import '../../data/models/printer_dto.dart';
 import '../../services/esc_pos_generator.dart';
 import '../../services/printer_service.dart';
+import '../../data/repositories/printer_repository.dart';
+import 'auth_provider.dart';
 
 /// Provider para la cola de impresión
 final printQueueProvider = StateNotifierProvider<PrintQueueNotifier, List<PrintQueueTicket>>((ref) {
@@ -101,6 +105,7 @@ final kitchenTicketGeneratorProvider = Provider<Function({
   required List<OrderItemEntity> items,
   String? notes,
   String? kitchenNotes,
+  String? waiterName,
   required DateTime createdAt,
 })>((ref) {
   return ({
@@ -109,6 +114,7 @@ final kitchenTicketGeneratorProvider = Provider<Function({
     required List<OrderItemEntity> items,
     String? notes,
     String? kitchenNotes,
+    String? waiterName,
     required DateTime createdAt,
   }) {
     final itemsData = items.map((item) => OrderItemData(
@@ -129,6 +135,7 @@ final kitchenTicketGeneratorProvider = Provider<Function({
       items: itemsData,
       notes: notes,
       kitchenNotes: kitchenNotes,
+      waiterName: waiterName,
       createdAt: createdAt,
     );
 
@@ -185,6 +192,7 @@ final billTicketGeneratorProvider = Provider<Function({
   required double tax,
   required double total,
   String? paymentMethod,
+  String? waiterName,
   required DateTime createdAt,
 })>((ref) {
   return ({
@@ -196,6 +204,7 @@ final billTicketGeneratorProvider = Provider<Function({
     required double tax,
     required double total,
     String? paymentMethod,
+    String? waiterName,
     required DateTime createdAt,
   }) {
     final itemsData = items.map((item) => OrderItemData(
@@ -218,6 +227,7 @@ final billTicketGeneratorProvider = Provider<Function({
       tax: tax,
       total: total,
       paymentMethod: notes,
+      waiterName: waiterName,
       createdAt: createdAt,
     );
 
@@ -225,38 +235,111 @@ final billTicketGeneratorProvider = Provider<Function({
   };
 });
 
-/// Estado de conexión de la impresora Sunmi
-final printerConnectionProvider = StateProvider<PrinterConnectionStatus>((ref) {
-  return PrinterConnectionStatus.disconnected;
+/// Stream de impresoras configuradas (Firestore, compartido entre dispositivos)
+final printersProvider = StreamProvider<List<PrinterEntity>>((ref) {
+  return ref
+      .read(printerRepositoryProvider)
+      .watchPrinters(Constants.defaultVenueId);
 });
 
-/// Notificador para manejar impresión real
-class RealPrinterNotifier extends StateNotifier<AsyncValue<bool>> {
-  RealPrinterNotifier() : super(const AsyncValue.data(false));
+/// Acciones sobre impresoras: alta, edición, borrado, principal y test.
+class PrinterActionsNotifier extends StateNotifier<AsyncValue<void>> {
+  PrinterActionsNotifier(this._repo) : super(const AsyncValue.data(null));
 
-  Future<bool> testConnection() async {
+  final PrinterRepository _repo;
+
+  Future<void> _run(Future<void> Function() fn) async {
     state = const AsyncValue.loading();
     try {
-      final status = await PrinterService.checkConnection();
-      final connected = status == PrinterConnectionStatus.connected;
-      state = AsyncValue.data(connected);
-      return connected;
+      await fn();
+      state = const AsyncValue.data(null);
     } catch (e) {
       state = AsyncValue.error(e, StackTrace.current);
-      return false;
+      rethrow;
     }
   }
 
-  Future<bool> printTicket(String escPosHex) async {
-    try {
-      final result = await PrinterService.printTicket(escPosHex);
-      return result;
-    } catch (_) {
-      return false;
-    }
+  Future<void> addPrinter({
+    required String name,
+    required String ip,
+    int port = 9100,
+    bool isPrincipal = false,
+    List<String> workspaces = const [],
+  }) {
+    return _run(() => _repo.addPrinter(
+          venueId: Constants.defaultVenueId,
+          name: name,
+          ip: ip,
+          port: port,
+          isPrincipal: isPrincipal,
+          workspaces: workspaces,
+        ));
+  }
+
+  Future<void> updatePrinter(String printerId, Map<String, dynamic> data) {
+    return _run(() => _repo.updatePrinter(
+          venueId: Constants.defaultVenueId,
+          printerId: printerId,
+          data: data,
+        ));
+  }
+
+  Future<void> deletePrinter(String printerId) {
+    return _run(() => _repo.deletePrinter(
+          venueId: Constants.defaultVenueId,
+          printerId: printerId,
+        ));
+  }
+
+  Future<void> setPrincipal(List<PrinterEntity> printers, String printerId) {
+    return _run(() => _repo.setPrincipal(
+          venueId: Constants.defaultVenueId,
+          printers: printers,
+          printerId: printerId,
+        ));
+  }
+
+  /// Comprueba conexión TCP con la impresora.
+  Future<PrinterConnectionStatus> testConnection(PrinterEntity printer) {
+    return PrinterService.checkConnection(printer);
+  }
+
+  /// Imprime ticket de prueba en la impresora.
+  Future<bool> printTest(PrinterEntity printer) {
+    final bytes = EscPosGenerator.generateTestTicket(
+      printerName: printer.name,
+      ip: printer.ip,
+    );
+    return PrinterService.printBytes(printer, bytes);
   }
 }
 
-final realPrinterProvider = StateNotifierProvider<RealPrinterNotifier, AsyncValue<bool>>((ref) {
-  return RealPrinterNotifier();
+final printerActionsProvider =
+    StateNotifierProvider<PrinterActionsNotifier, AsyncValue<void>>((ref) {
+  return PrinterActionsNotifier(ref.read(printerRepositoryProvider));
 });
+
+/// Impresoras de un espacio de trabajo (p. ej. Cocina). Si no hay
+/// ninguna configurada para ese espacio, devuelve la principal.
+List<PrinterEntity> printersForWorkspace(
+  List<PrinterEntity> all,
+  String workspace,
+) {
+  final match = all
+      .where((p) => p.isConfigured && p.workspaces.contains(workspace))
+      .toList();
+  if (match.isNotEmpty) return match;
+  final principal = all.where((p) => p.isConfigured && p.isPrincipal).toList();
+  if (principal.isNotEmpty) return principal;
+  return all.where((p) => p.isConfigured).toList();
+}
+
+/// Impresora principal (para proforma/cuenta). Null si no hay configurada.
+PrinterEntity? principalPrinter(List<PrinterEntity> all) {
+  final configured = all.where((p) => p.isConfigured).toList();
+  if (configured.isEmpty) return null;
+  return configured.firstWhere(
+    (p) => p.isPrincipal,
+    orElse: () => configured.first,
+  );
+}

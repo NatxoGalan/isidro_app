@@ -7,13 +7,10 @@ import '../../config/theme.dart';
 import '../../core/utils/constants.dart';
 import '../../data/models/table_dto.dart';
 import '../../services/seed_service.dart';
-import '../../services/printer_service.dart';
 import '../providers/table_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/auth_provider.dart';
-import '../providers/printer_provider.dart';
 import '../widgets/table_card.dart';
-import '../widgets/mock_printer_overlay.dart';
 import '../widgets/add_table_dialog.dart';
 import '../widgets/table_toolbar.dart';
 
@@ -107,8 +104,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                               onTap: () => context.push('/dashboard/menu'),
                             ),
                             const SizedBox(width: 4),
-                            _PrinterTestButton(
-                              onTap: () => _testPrinter(context),
+                            _HeaderButton(
+                              icon: Icons.print_rounded,
+                              onTap: () => context.push('/dashboard/printers'),
                             ),
                             const SizedBox(width: 4),
                             _HeaderButton(
@@ -214,7 +212,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
             right: 0,
             child: TableToolbar(),
           ),
-          const MockPrinterOverlay(),
         ],
       ),
     );
@@ -237,52 +234,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
       context: context,
       builder: (_) => AddTableDialog(initialZone: zone),
     );
-  }
-
-  Future<void> _testPrinter(BuildContext context) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text('Verificando impresora...'),
-          ],
-        ),
-        backgroundColor: AppColors.gray1,
-        duration: Duration(seconds: 2),
-      ),
-    );
-
-    final connected = await ref.read(realPrinterProvider.notifier).testConnection();
-
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(
-                connected ? Icons.check_circle : Icons.error_outline,
-                color: Colors.white,
-                size: 20,
-              ),
-              const SizedBox(width: 12),
-              Text(connected ? 'Impresora conectada' : 'Impresora no detectada'),
-            ],
-          ),
-          backgroundColor: connected ? AppColors.green : AppColors.red,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
   }
 
   int _getCrossAxisCount(BuildContext context) {
@@ -426,50 +377,6 @@ class _HeaderButton extends StatelessWidget {
           icon,
           size: 20,
           color: isPrimary ? Colors.white : AppColors.blue,
-        ),
-      ),
-    );
-  }
-}
-
-// ── Printer Test Button ──────────────────────────────────────────────
-class _PrinterTestButton extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const _PrinterTestButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: AppColors.gray5,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Icon(
-              Icons.print_rounded,
-              size: 20,
-              color: AppColors.blue,
-            ),
-            Positioned(
-              top: 3,
-              right: 3,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: AppColors.orange,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );

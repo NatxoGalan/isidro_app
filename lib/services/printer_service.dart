@@ -1,5 +1,6 @@
-import 'dart:typed_data';
-import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
+import 'dart:async';
+import 'dart:io';
+import '../data/models/printer_dto.dart';
 
 enum PrinterConnectionStatus {
   checking,
@@ -8,99 +9,68 @@ enum PrinterConnectionStatus {
   error,
 }
 
+/// Impresión real en impresoras térmicas de red (WiFi) por TCP puerto 9100.
 class PrinterService {
-  static final SunmiPrinterPlus _printer = SunmiPrinterPlus();
-  static bool _initialized = false;
-  static PrinterConnectionStatus _status = PrinterConnectionStatus.disconnected;
+  static const Duration _defaultTimeout = Duration(seconds: 3);
 
-  static PrinterConnectionStatus get status => _status;
-
-  /// Inicializa el binding con el servicio de impresión Sunmi
-  static Future<bool> init() async {
+  /// Comprueba si la impresora responde en su IP:puerto.
+  static Future<PrinterConnectionStatus> checkConnection(
+    PrinterEntity printer, {
+    Duration timeout = _defaultTimeout,
+  }) async {
+    if (!printer.isConfigured) return PrinterConnectionStatus.disconnected;
     try {
-      await _printer.rebindPrinter();
-      _initialized = true;
-      return true;
+      final socket = await Socket.connect(
+        printer.ip.trim(),
+        printer.port,
+        timeout: timeout,
+      );
+      socket.destroy();
+      return PrinterConnectionStatus.connected;
+    } on SocketException {
+      return PrinterConnectionStatus.disconnected;
+    } on TimeoutException {
+      return PrinterConnectionStatus.disconnected;
     } catch (_) {
-      _initialized = false;
-      return false;
+      return PrinterConnectionStatus.error;
     }
   }
 
-  /// Verifica si la impresora está conectada y lista
-  static Future<PrinterConnectionStatus> checkConnection() async {
-    _status = PrinterConnectionStatus.checking;
-
+  /// Envía bytes ESC/POS a la impresora.
+  static Future<bool> printBytes(
+    PrinterEntity printer,
+    List<int> data, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    if (!printer.isConfigured) return false;
     try {
-      if (!_initialized) {
-        final ok = await init();
-        if (!ok) {
-          _status = PrinterConnectionStatus.disconnected;
-          return _status;
-        }
-      }
-
-      final statusResult = await _printer.getStatus();
-
-      if (statusResult != null && statusResult.toUpperCase().contains('READY')) {
-        _status = PrinterConnectionStatus.connected;
-      } else {
-        _status = PrinterConnectionStatus.connected;
-      }
-    } catch (_) {
-      _initialized = false;
-      _status = PrinterConnectionStatus.error;
-    }
-
-    return _status;
-  }
-
-  /// Imprime datos ESC/POS raw (bytes)
-  static Future<bool> printEscPos(List<int> data) async {
-    try {
-      if (_status != PrinterConnectionStatus.connected) {
-        final result = await checkConnection();
-        if (result != PrinterConnectionStatus.connected) return false;
-      }
-
-      await _printer.printEscPos(data);
+      final socket = await Socket.connect(
+        printer.ip.trim(),
+        printer.port,
+        timeout: timeout,
+      );
+      socket.add(data);
+      await socket.flush();
+      // Dar tiempo a la impresora a procesar antes de cerrar.
+      await Future.delayed(const Duration(milliseconds: 500));
+      socket.destroy();
       return true;
     } catch (_) {
       return false;
     }
   }
 
-  /// Imprime ticket desde hex string ESC/POS
-  static Future<bool> printTicket(String escPosHex) async {
+  /// Convierte hex string ESC/POS a bytes e imprime.
+  static Future<bool> printHex(PrinterEntity printer, String escPosHex) async {
     try {
-      final bytes = _hexToBytes(escPosHex);
-      return await printEscPos(bytes);
+      final bytes = <int>[];
+      final hex = escPosHex.trim();
+      for (var i = 0; i + 1 < hex.length; i += 2) {
+        bytes.add(int.parse(hex.substring(i, i + 2), radix: 16));
+      }
+      return printBytes(printer, bytes);
     } catch (_) {
       return false;
     }
-  }
-
-  /// Corta el papel
-  static Future<void> cutPaper() async {
-    try {
-      await _printer.cutPaper();
-    } catch (_) {}
-  }
-
-  /// Reconecta la impresora
-  static Future<bool> reconnect() async {
-    _initialized = false;
-    _status = PrinterConnectionStatus.disconnected;
-    return await init();
-  }
-
-  /// Convierte hex string a bytes
-  static Uint8List _hexToBytes(String hex) {
-    final bytes = <int>[];
-    for (var i = 0; i < hex.length; i += 2) {
-      final byte = int.parse(hex.substring(i, i + 2), radix: 16);
-      bytes.add(byte);
-    }
-    return Uint8List.fromList(bytes);
   }
 }

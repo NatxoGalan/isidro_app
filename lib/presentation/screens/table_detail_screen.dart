@@ -7,8 +7,10 @@ import '../../config/theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/order_dto.dart';
 import '../../data/models/print_dto.dart';
+import '../../data/models/printer_dto.dart';
 import '../../services/esc_pos_generator.dart';
 import '../../services/printer_service.dart';
+import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/product_provider.dart';
 import '../providers/printer_provider.dart';
@@ -286,6 +288,23 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
               ),
               const SizedBox(width: 10),
               Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.receipt_rounded, size: 18),
+                    label: Text('Proforma', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14)),
+                    onPressed: () => _printProforma(cart, tableNumber),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.blue,
+                      backgroundColor: AppColors.blue.withValues(alpha: 0.08),
+                      side: BorderSide.none,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
                 flex: 2,
                 child: SizedBox(
                   height: 48,
@@ -442,12 +461,15 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
       if (allItemNotes.isNotEmpty) '--- Notas por plato ---\n$allItemNotes',
     ].join('\n');
 
+    final waiterName = ref.read(authProvider).value?.displayName;
+
     final escPosBytes = EscPosGenerator.generateKitchenTicket(
       orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'draft',
       tableNumber: tableNumber,
       items: cart.items.map((i) => i.toOrderItemData()).toList(),
       notes: combinedNotes.isNotEmpty ? combinedNotes : null,
       kitchenNotes: null,
+      waiterName: waiterName,
       createdAt: DateTime.now(),
     );
 
@@ -472,24 +494,105 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
       escPosHex: escPosHex,
     );
 
-    final printed = await ref.read(realPrinterProvider.notifier).printTicket(escPosHex);
+    // Impresión real en impresora(s) de Cocina
+    final allPrinters = ref.read(printersProvider).value ?? [];
+    final targets = printersForWorkspace(allPrinters, PrinterWorkspace.kitchen);
+
+    String message;
+    Color bg;
+    if (targets.isEmpty) {
+      message = 'Sin impresoras de cocina configuradas';
+      bg = AppColors.orange;
+    } else {
+      var ok = 0;
+      for (final p in targets) {
+        // ignore: use_build_context_synchronously
+        if (await PrinterService.printBytes(p, escPosBytes)) ok++;
+      }
+      if (ok == targets.length) {
+        message = 'Comanda impresa en ${targets.map((p) => p.name).join(', ')}';
+        bg = AppColors.green;
+      } else if (ok > 0) {
+        message = 'Impresa en $ok de ${targets.length} impresoras';
+        bg = AppColors.orange;
+      } else {
+        message = 'No se pudo imprimir (revisa la conexión)';
+        bg = AppColors.red;
+      }
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
             children: [
-              Icon(
-                printed ? Icons.check_circle : Icons.info_outline,
-                color: Colors.white,
-                size: 18,
-              ),
+              const Icon(Icons.check_circle, color: Colors.white, size: 18),
               const SizedBox(width: 10),
-              Text(printed ? 'Comanda enviada e impresa' : 'Comanda encolada (impresora no disponible)'),
+              Expanded(child: Text(message)),
             ],
           ),
-          backgroundColor: printed ? AppColors.green : AppColors.orange,
+          backgroundColor: bg,
         ),
+      );
+    }
+  }
+
+  /// Imprime la factura proforma en la impresora principal SIN cerrar la mesa
+  void _printProforma(CartState cart, String tableNumber) async {
+    if (cart.isEmpty) return;
+
+    final waiterName = ref.read(authProvider).value?.displayName;
+
+    final escPosBytes = EscPosGenerator.generateBillTicket(
+      orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'bill',
+      tableNumber: tableNumber,
+      items: cart.items.map((i) => i.toOrderItemData()).toList(),
+      subtotal: cart.subtotal,
+      tax: 0,
+      total: cart.total,
+      waiterName: waiterName,
+      createdAt: DateTime.now(),
+    );
+
+    final escPosHex = EscPosGenerator.bytesToHex(escPosBytes);
+
+    final printItems = cart.items.map((i) => PrintItemData(
+      productId: i.productId,
+      name: i.productName,
+      quantity: i.quantity,
+      unitPrice: i.unitPrice,
+      modifiers: i.modifiers.map((m) => m.optionName ?? m.modifierName).toList(),
+      notes: i.notes,
+      isTakeaway: i.isTakeaway,
+    )).toList();
+
+    ref.read(printQueueProvider.notifier).addTicket(
+      orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'bill',
+      tableNumber: tableNumber,
+      type: PrintType.bill,
+      items: printItems,
+      escPosHex: escPosHex,
+    );
+
+    final allPrinters = ref.read(printersProvider).value ?? [];
+    final principal = principalPrinter(allPrinters);
+
+    String message;
+    Color bg;
+    if (principal == null) {
+      message = 'Sin impresora principal configurada';
+      bg = AppColors.orange;
+    } else {
+      final ok = await PrinterService.printBytes(principal, escPosBytes);
+      message = ok
+          ? 'Proforma impresa en ${principal.name}'
+          : 'No se pudo imprimir en ${principal.name}';
+      bg = ok ? AppColors.green : AppColors.red;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: bg),
       );
     }
   }
@@ -505,6 +608,8 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
         tableNumber: tableNumber,
         subtotal: cart.subtotal,
         onPaid: (paymentMethod) async {
+          final waiterName = ref.read(authProvider).value?.displayName;
+
           final escPosBytes = EscPosGenerator.generateBillTicket(
             orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'bill',
             tableNumber: tableNumber,
@@ -513,6 +618,7 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
             tax: 0,
             total: cart.total,
             paymentMethod: paymentMethod,
+            waiterName: waiterName,
             createdAt: DateTime.now(),
           );
 
@@ -537,14 +643,25 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
             escPosHex: escPosHex,
           );
 
+          final allPrinters = ref.read(printersProvider).value ?? [];
+          final principal = principalPrinter(allPrinters);
+          var printedBill = false;
+          if (principal != null) {
+            printedBill =
+                await PrinterService.printBytes(principal, escPosBytes);
+          }
+
           await ref.read(cartProvider.notifier).closeTable();
 
           if (context.mounted) {
             Navigator.of(context).pop();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Pago completado. Mesa liberada'),
-                backgroundColor: AppColors.green,
+                content: Text(printedBill
+                    ? 'Pago completado. Cuenta impresa. Mesa liberada'
+                    : 'Pago completado. Mesa liberada (cuenta no impresa)'),
+                backgroundColor:
+                    printedBill ? AppColors.green : AppColors.orange,
               ),
             );
           }

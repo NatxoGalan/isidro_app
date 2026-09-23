@@ -5,6 +5,7 @@ import 'presentation/screens/login_screen.dart';
 import 'presentation/screens/dashboard_screen.dart';
 import 'presentation/screens/table_detail_screen.dart';
 import 'presentation/screens/menu_management_screen.dart';
+import 'presentation/screens/printers_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
@@ -32,6 +33,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'menu',
             builder: (context, state) => const MenuManagementScreen(),
+          ),
+          GoRoute(
+            path: 'printers',
+            builder: (context, state) => const PrintersScreen(),
           ),
         ],
       ),
