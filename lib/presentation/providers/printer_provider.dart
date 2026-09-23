@@ -4,8 +4,10 @@ import '../../core/utils/constants.dart';
 import '../../data/models/print_dto.dart';
 import '../../data/models/order_dto.dart';
 import '../../data/models/printer_dto.dart';
+import '../../data/models/print_job_dto.dart';
 import '../../services/esc_pos_generator.dart';
 import '../../services/printer_service.dart';
+import '../../services/print_station.dart';
 import '../../data/repositories/printer_repository.dart';
 import 'auth_provider.dart';
 
@@ -333,6 +335,21 @@ List<PrinterEntity> printersForWorkspace(
   if (principal.isNotEmpty) return principal;
   return all.where((p) => p.isConfigured).toList();
 }
+
+/// Cola reciente de trabajos de impresión (relay).
+final printJobsProvider = StreamProvider<List<PrintJobEntity>>((ref) {
+  return ref
+      .read(printerRepositoryProvider)
+      .watchRecentJobs(Constants.defaultVenueId);
+});
+
+/// Estación de impresión: procesa trabajos pendientes en este dispositivo.
+final printStationProvider = Provider<PrintStationService>((ref) {
+  final service =
+      PrintStationService(ref.read(printerRepositoryProvider));
+  ref.onDispose(() => service.stop());
+  return service;
+});
 
 /// Impresora principal (para proforma/cuenta). Null si no hay configurada.
 PrinterEntity? principalPrinter(List<PrinterEntity> all) {

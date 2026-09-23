@@ -90,6 +90,7 @@ class OrderItemEntity {
   final bool isTakeaway;
   final OrderItemStatus status;
   final DateTime createdAt;
+  final int sentQuantity;
 
   const OrderItemEntity({
     required this.itemId,
@@ -103,6 +104,7 @@ class OrderItemEntity {
     this.isTakeaway = false,
     this.status = OrderItemStatus.pending,
     required this.createdAt,
+    this.sentQuantity = 0,
   });
 
   factory OrderItemEntity.fromMap(Map<String, dynamic> map) {
@@ -123,8 +125,12 @@ class OrderItemEntity {
         orElse: () => OrderItemStatus.pending,
       ),
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      sentQuantity: (map['sentQuantity'] as num?)?.toInt() ?? 0,
     );
   }
+
+  /// Cantidad pendiente de enviar a cocina.
+  int get unsentQuantity => (quantity - sentQuantity).clamp(0, quantity);
 
   OrderItemEntity copyWith({
     String? itemId,
@@ -138,6 +144,7 @@ class OrderItemEntity {
     bool? isTakeaway,
     OrderItemStatus? status,
     DateTime? createdAt,
+    int? sentQuantity,
   }) {
     return OrderItemEntity(
       itemId: itemId ?? this.itemId,
@@ -151,6 +158,7 @@ class OrderItemEntity {
       isTakeaway: isTakeaway ?? this.isTakeaway,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
+      sentQuantity: sentQuantity ?? this.sentQuantity,
     );
   }
 
@@ -166,6 +174,7 @@ class OrderItemEntity {
     'isTakeaway': isTakeaway,
     'status': status.name,
     'createdAt': createdAt,
+    'sentQuantity': sentQuantity,
   };
 }
 

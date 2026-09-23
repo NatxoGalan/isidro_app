@@ -1,4 +1,5 @@
 import '../models/printer_dto.dart';
+import '../models/print_job_dto.dart';
 import '../datasources/firebase_firestore_datasource.dart';
 
 class PrinterRepository {
@@ -59,6 +60,79 @@ class PrinterRepository {
       batch.update(ref.doc(p.id), {'isPrincipal': p.id == printerId});
     }
     await batch.commit();
+  }
+
+  Stream<List<PrintJobEntity>> watchPendingJobs(String venueId) {
+    return _datasource.watchPendingJobs(venueId);
+  }
+
+  Stream<List<PrintJobEntity>> watchRecentJobs(String venueId) {
+    return _datasource.watchRecentJobs(venueId);
+  }
+
+  Future<String> enqueueJob({
+    required String venueId,
+    required String printerId,
+    String printerName = '',
+    String workspace = '',
+    required String type,
+    String tableNumber = '',
+    required String escPosHex,
+    required String createdBy,
+  }) async {
+    return _datasource.addPrintJob(venueId, {
+      'venueId': venueId,
+      'printerId': printerId,
+      'printerName': printerName,
+      'workspace': workspace,
+      'type': type,
+      'tableNumber': tableNumber,
+      'escPosHex': escPosHex,
+      'status': PrintJobStatus.pending.name,
+      'createdBy': createdBy,
+      'claimedBy': null,
+      'createdAt': DateTime.now(),
+      'printedAt': null,
+      'error': null,
+    });
+  }
+
+  Future<bool> claimJob({
+    required String venueId,
+    required String jobId,
+    required String deviceId,
+  }) {
+    return _datasource.claimPrintJob(venueId, jobId, deviceId);
+  }
+
+  Future<void> finishJob({
+    required String venueId,
+    required String jobId,
+    required bool ok,
+    String? error,
+  }) {
+    return _datasource.finishPrintJob(venueId, jobId, ok: ok, error: error);
+  }
+
+  Future<void> requeueJob({
+    required String venueId,
+    required String jobId,
+  }) {
+    return _datasource.requeuePrintJob(venueId, jobId);
+  }
+
+  Future<void> deleteJob({
+    required String venueId,
+    required String jobId,
+  }) {
+    return _datasource.deletePrintJob(venueId, jobId);
+  }
+
+  Future<void> cleanOldJobs(String venueId) {
+    return _datasource.deleteOldJobs(
+      venueId,
+      DateTime.now().subtract(const Duration(hours: 24)),
+    );
   }
 
   /// Crea las impresoras por defecto si no hay ninguna.

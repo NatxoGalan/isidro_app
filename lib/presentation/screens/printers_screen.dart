@@ -4,6 +4,9 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../config/theme.dart';
 import '../../core/utils/constants.dart';
 import '../../data/models/printer_dto.dart';
+import '../../data/models/print_job_dto.dart';
+import '../../services/esc_pos_generator.dart';
+import '../../services/print_station.dart';
 import '../providers/auth_provider.dart';
 import '../providers/printer_provider.dart';
 import '../../services/printer_service.dart';
@@ -41,15 +44,41 @@ class _PrintersScreenState extends ConsumerState<PrintersScreen> {
   }
 
   Future<void> _testPrint(PrinterEntity printer) async {
-    final ok = await ref.read(printerActionsProvider.notifier).printTest(printer);
+    final ok =
+        await ref.read(printerActionsProvider.notifier).printTest(printer);
+    String message;
+    Color bg;
+    if (ok) {
+      message = 'Prueba impresa en ${printer.name}';
+      bg = AppColors.green;
+    } else {
+      // Sin WiFi directo: se encola para que la imprima la estación
+      var queued = false;
+      try {
+        final bytes = EscPosGenerator.generateTestTicket(
+          printerName: printer.name,
+          ip: printer.ip,
+        );
+        final deviceId = await getDeviceId();
+        await ref.read(printerRepositoryProvider).enqueueJob(
+              venueId: Constants.defaultVenueId,
+              printerId: printer.id,
+              printerName: printer.name,
+              workspace: '',
+              type: PrintJobType.test,
+              escPosHex: EscPosGenerator.bytesToHex(bytes),
+              createdBy: deviceId,
+            );
+        queued = true;
+      } catch (_) {}
+      message = queued
+          ? 'Sin conexión directa: prueba encolada, se imprimirá sola'
+          : 'No se pudo imprimir en ${printer.name}';
+      bg = queued ? AppColors.orange : AppColors.red;
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(ok
-              ? 'Prueba enviada a ${printer.name}'
-              : 'No se pudo imprimir en ${printer.name}'),
-          backgroundColor: ok ? AppColors.green : AppColors.red,
-        ),
+        SnackBar(content: Text(message), backgroundColor: bg),
       );
     }
   }
@@ -182,14 +211,17 @@ class _PrintersScreenState extends ConsumerState<PrintersScreen> {
               ),
             );
           }
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-            itemCount: printers.length,
-            itemBuilder: (context, i) {
-              final printer = printers[i];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: _PrinterCard(
+          return Consumer(
+            builder: (context, ref, _) {
+              final jobsAsync = ref.watch(printJobsProvider);
+              final jobs = jobsAsync.value ?? [];
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                children: [
+                  for (final printer in printers)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: _PrinterCard(
                   printer: printer,
                 status: _status[printer.id] ??
                     PrinterConnectionStatus.disconnected,
@@ -205,7 +237,11 @@ class _PrintersScreenState extends ConsumerState<PrintersScreen> {
                         .setPrincipal(printers, printer.id);
                   }
                 },
-                ),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  _JobsSection(jobs: jobs),
+                ],
               );
             },
           );
@@ -654,6 +690,171 @@ class _PrinterDialogState extends ConsumerState<_PrinterDialog> {
           child: const Text('Guardar'),
         ),
       ],
+    );
+  }
+}
+
+// ── Cola de impresión (relay) ────────────────────────────────────────
+class _JobsSection extends ConsumerWidget {
+  final List<PrintJobEntity> jobs;
+
+  const _JobsSection({required this.jobs});
+
+  String _typeLabel(String type) {
+    switch (type) {
+      case PrintJobType.kitchen:
+        return 'Cocina';
+      case PrintJobType.bill:
+        return 'Cuenta';
+      case PrintJobType.test:
+        return 'Prueba';
+      default:
+        return type;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final repo = ref.read(printerRepositoryProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+          child: Text(
+            'Cola de impresión (${jobs.where((j) => j.status == PrintJobStatus.pending || j.status == PrintJobStatus.printing).length} pendientes)',
+            style: GoogleFonts.inter(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: AppColors.label,
+            ),
+          ),
+        ),
+        if (jobs.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+            child: Text(
+              'Cola vacía',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: AppColors.secondaryLabel,
+              ),
+            ),
+          ),
+        for (final job in jobs)
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.separator),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  job.type == PrintJobType.bill
+                      ? Icons.receipt_rounded
+                      : Icons.print_rounded,
+                  size: 20,
+                  color: AppColors.secondaryLabel,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${_typeLabel(job.type)}'
+                        '${job.tableNumber.isNotEmpty ? ' · Mesa ${job.tableNumber}' : ''}'
+                        '${job.printerName.isNotEmpty ? ' · ${job.printerName}' : ''}',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.label,
+                        ),
+                      ),
+                      if (job.error != null && job.error!.isNotEmpty)
+                        Text(
+                          job.error!,
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: AppColors.red,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                _JobStatusPill(status: job.status),
+                if (job.status == PrintJobStatus.failed) ...[
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () => repo.requeueJob(
+                      venueId: Constants.defaultVenueId,
+                      jobId: job.id,
+                    ),
+                    child: const Icon(Icons.refresh_rounded,
+                        size: 22, color: AppColors.blue),
+                  ),
+                ],
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: () => repo.deleteJob(
+                    venueId: Constants.defaultVenueId,
+                    jobId: job.id,
+                  ),
+                  child: const Icon(Icons.close_rounded,
+                      size: 20, color: AppColors.secondaryLabel),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _JobStatusPill extends StatelessWidget {
+  final PrintJobStatus status;
+
+  const _JobStatusPill({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    late final String label;
+    late final Color color;
+    switch (status) {
+      case PrintJobStatus.pending:
+        label = 'En cola';
+        color = AppColors.orange;
+        break;
+      case PrintJobStatus.printing:
+        label = 'Imprimiendo';
+        color = AppColors.blue;
+        break;
+      case PrintJobStatus.done:
+        label = 'OK';
+        color = AppColors.green;
+        break;
+      case PrintJobStatus.failed:
+        label = 'Fallo';
+        color = AppColors.red;
+        break;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.inter(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
     );
   }
 }

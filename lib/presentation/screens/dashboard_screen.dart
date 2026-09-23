@@ -10,6 +10,7 @@ import '../../services/seed_service.dart';
 import '../providers/table_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/printer_provider.dart';
 import '../widgets/table_card.dart';
 import '../widgets/add_table_dialog.dart';
 import '../widgets/table_toolbar.dart';
@@ -49,6 +50,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     await seed.seedIfEmpty();
     if (mounted) {
       ref.read(tableProvider.notifier).watchTables(Constants.defaultVenueId);
+      // Estación de impresión: procesar trabajos pendientes en este equipo
+      ref.read(printStationProvider).start();
     }
   }
 

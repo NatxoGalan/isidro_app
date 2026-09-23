@@ -5,11 +5,14 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../config/theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/constants.dart';
 import '../../data/models/order_dto.dart';
 import '../../data/models/print_dto.dart';
+import '../../data/models/print_job_dto.dart';
 import '../../data/models/printer_dto.dart';
 import '../../services/esc_pos_generator.dart';
 import '../../services/printer_service.dart';
+import '../../services/print_station.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/product_provider.dart';
@@ -450,7 +453,19 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
   void _sendToKitchen(CartState cart, String tableNumber) async {
     if (cart.isEmpty) return;
 
-    final itemNotesList = cart.items
+    // Solo lo nuevo: lo ya enviado no se reimprime
+    final notifier = ref.read(cartProvider.notifier);
+    final deltas = notifier.unsentItems;
+    if (deltas.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nada nuevo que enviar a cocina')),
+        );
+      }
+      return;
+    }
+
+    final itemNotesList = deltas
         .where((i) => i.notes.isNotEmpty)
         .map((i) => '${i.productName}: ${i.notes}')
         .toList();
@@ -464,9 +479,23 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
     final waiterName = ref.read(authProvider).value?.displayName;
 
     final escPosBytes = EscPosGenerator.generateKitchenTicket(
-      orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'draft',
+      orderId: notifier.currentOrderId ?? 'draft',
       tableNumber: tableNumber,
-      items: cart.items.map((i) => i.toOrderItemData()).toList(),
+      items: deltas
+          .map((i) => OrderItemData(
+                name: i.productName,
+                quantity: i.unsentQuantity,
+                unitPrice: i.unitPrice,
+                modifiers: i.modifiers
+                    .map((m) => ModifierData(
+                          name: m.optionName ?? m.modifierName,
+                          price: m.additionalPrice,
+                        ))
+                    .toList(),
+                notes: i.notes,
+                isTakeaway: i.isTakeaway,
+              ))
+          .toList(),
       notes: combinedNotes.isNotEmpty ? combinedNotes : null,
       kitchenNotes: null,
       waiterName: waiterName,
@@ -475,10 +504,10 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
 
     final escPosHex = EscPosGenerator.bytesToHex(escPosBytes);
 
-    final printItems = cart.items.map((i) => PrintItemData(
+    final printItems = deltas.map((i) => PrintItemData(
       productId: i.productId,
       name: i.productName,
-      quantity: i.quantity,
+      quantity: i.unsentQuantity,
       unitPrice: i.unitPrice,
       modifiers: i.modifiers.map((m) => m.optionName ?? m.modifierName).toList(),
       notes: i.notes,
@@ -494,31 +523,63 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
       escPosHex: escPosHex,
     );
 
-    // Impresión real en impresora(s) de Cocina
+    // 1) Intento directo (instantáneo si este móvil tiene WiFi)
     final allPrinters = ref.read(printersProvider).value ?? [];
     final targets = printersForWorkspace(allPrinters, PrinterWorkspace.kitchen);
 
+    var directOk = 0;
+    final failedTargets = <PrinterEntity>[];
+    for (final p in targets) {
+      // ignore: use_build_context_synchronously
+      if (await PrinterService.printBytes(p, escPosBytes)) {
+        directOk++;
+      } else {
+        failedTargets.add(p);
+      }
+    }
+
+    // 2) Lo que no salió directo se encola: lo imprimirá la tablet con WiFi
+    var queued = 0;
+    if (failedTargets.isNotEmpty || targets.isEmpty) {
+      try {
+        final deviceId = await getDeviceId();
+        final repo = ref.read(printerRepositoryProvider);
+        final toQueue =
+            targets.isEmpty ? <PrinterEntity?>[null] : failedTargets;
+        for (final p in toQueue) {
+          await repo.enqueueJob(
+            venueId: Constants.defaultVenueId,
+            printerId: p?.id ?? '',
+            printerName: p?.name ?? 'Cocina',
+            workspace: PrinterWorkspace.kitchen,
+            type: PrintJobType.kitchen,
+            tableNumber: tableNumber,
+            escPosHex: escPosHex,
+            createdBy: deviceId,
+          );
+          queued++;
+        }
+      } catch (_) {}
+    }
+
+    // Marcar como enviado + orden a pendiente (aunque vaya por relay)
+    await notifier.markItemsSent();
+    await notifier.sendToKitchen();
+
     String message;
     Color bg;
-    if (targets.isEmpty) {
-      message = 'Sin impresoras de cocina configuradas';
+    if (directOk == targets.length && targets.isNotEmpty) {
+      message = 'Comanda impresa en ${targets.map((p) => p.name).join(', ')}';
+      bg = AppColors.green;
+    } else if (queued > 0) {
+      message = 'Sin conexión directa: encolada, se imprimirá al recuperar WiFi';
+      bg = AppColors.orange;
+    } else if (directOk > 0) {
+      message = 'Impresa en $directOk de ${targets.length} impresoras';
       bg = AppColors.orange;
     } else {
-      var ok = 0;
-      for (final p in targets) {
-        // ignore: use_build_context_synchronously
-        if (await PrinterService.printBytes(p, escPosBytes)) ok++;
-      }
-      if (ok == targets.length) {
-        message = 'Comanda impresa en ${targets.map((p) => p.name).join(', ')}';
-        bg = AppColors.green;
-      } else if (ok > 0) {
-        message = 'Impresa en $ok de ${targets.length} impresoras';
-        bg = AppColors.orange;
-      } else {
-        message = 'No se pudo imprimir (revisa la conexión)';
-        bg = AppColors.red;
-      }
+      message = 'No se pudo enviar (revisa impresoras y conexión)';
+      bg = AppColors.red;
     }
 
     if (mounted) {
@@ -577,23 +638,66 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
     final allPrinters = ref.read(printersProvider).value ?? [];
     final principal = principalPrinter(allPrinters);
 
+    final result = await _printOrEnqueue(
+      bytes: escPosBytes,
+      escPosHex: escPosHex,
+      printer: principal,
+      type: PrintJobType.bill,
+      tableNumber: tableNumber,
+    );
+
     String message;
     Color bg;
-    if (principal == null) {
-      message = 'Sin impresora principal configurada';
-      bg = AppColors.orange;
-    } else {
-      final ok = await PrinterService.printBytes(principal, escPosBytes);
-      message = ok
-          ? 'Proforma impresa en ${principal.name}'
-          : 'No se pudo imprimir en ${principal.name}';
-      bg = ok ? AppColors.green : AppColors.red;
+    switch (result) {
+      case 'printed':
+        message = 'Proforma impresa en ${principal!.name}';
+        bg = AppColors.green;
+        break;
+      case 'queued':
+        message = 'Sin conexión directa: proforma encolada, se imprimirá sola';
+        bg = AppColors.orange;
+        break;
+      default:
+        message = 'No se pudo imprimir la proforma';
+        bg = AppColors.red;
     }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: bg),
       );
+    }
+  }
+
+  /// Intenta impresión directa en [printer]; si falla o no hay,
+  /// encola el trabajo para la estación (relay).
+  /// Devuelve 'printed', 'queued' o 'failed'.
+  Future<String> _printOrEnqueue({
+    required List<int> bytes,
+    required String escPosHex,
+    PrinterEntity? printer,
+    String workspace = '',
+    required String type,
+    required String tableNumber,
+  }) async {
+    if (printer != null) {
+      if (await PrinterService.printBytes(printer, bytes)) return 'printed';
+    }
+    try {
+      final deviceId = await getDeviceId();
+      await ref.read(printerRepositoryProvider).enqueueJob(
+            venueId: Constants.defaultVenueId,
+            printerId: printer?.id ?? '',
+            printerName: printer?.name ?? '',
+            workspace: workspace,
+            type: type,
+            tableNumber: tableNumber,
+            escPosHex: escPosHex,
+            createdBy: deviceId,
+          );
+      return 'queued';
+    } catch (_) {
+      return 'failed';
     }
   }
 
@@ -645,11 +749,13 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
 
           final allPrinters = ref.read(printersProvider).value ?? [];
           final principal = principalPrinter(allPrinters);
-          var printedBill = false;
-          if (principal != null) {
-            printedBill =
-                await PrinterService.printBytes(principal, escPosBytes);
-          }
+          final billResult = await _printOrEnqueue(
+            bytes: escPosBytes,
+            escPosHex: escPosHex,
+            printer: principal,
+            type: PrintJobType.bill,
+            tableNumber: tableNumber,
+          );
 
           await ref.read(cartProvider.notifier).closeTable();
 
@@ -657,11 +763,16 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
             Navigator.of(context).pop();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(printedBill
+                content: Text(billResult == 'printed'
                     ? 'Pago completado. Cuenta impresa. Mesa liberada'
-                    : 'Pago completado. Mesa liberada (cuenta no impresa)'),
-                backgroundColor:
-                    printedBill ? AppColors.green : AppColors.orange,
+                    : billResult == 'queued'
+                        ? 'Pago completado. Cuenta encolada, se imprimirá sola'
+                        : 'Pago completado. Mesa liberada (cuenta no impresa)'),
+                backgroundColor: billResult == 'failed'
+                    ? AppColors.red
+                    : billResult == 'printed'
+                        ? AppColors.green
+                        : AppColors.orange,
               ),
             );
           }

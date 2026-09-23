@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 import '../data/models/printer_dto.dart';
+import 'printer_transport.dart';
 
 enum PrinterConnectionStatus {
   checking,
@@ -20,15 +20,10 @@ class PrinterService {
   }) async {
     if (!printer.isConfigured) return PrinterConnectionStatus.disconnected;
     try {
-      final socket = await Socket.connect(
-        printer.ip.trim(),
-        printer.port,
-        timeout: timeout,
-      );
-      socket.destroy();
-      return PrinterConnectionStatus.connected;
-    } on SocketException {
-      return PrinterConnectionStatus.disconnected;
+      final ok = await tcpCheck(printer.ip.trim(), printer.port, timeout);
+      return ok
+          ? PrinterConnectionStatus.connected
+          : PrinterConnectionStatus.disconnected;
     } on TimeoutException {
       return PrinterConnectionStatus.disconnected;
     } catch (_) {
@@ -43,21 +38,7 @@ class PrinterService {
     Duration timeout = const Duration(seconds: 5),
   }) async {
     if (!printer.isConfigured) return false;
-    try {
-      final socket = await Socket.connect(
-        printer.ip.trim(),
-        printer.port,
-        timeout: timeout,
-      );
-      socket.add(data);
-      await socket.flush();
-      // Dar tiempo a la impresora a procesar antes de cerrar.
-      await Future.delayed(const Duration(milliseconds: 500));
-      socket.destroy();
-      return true;
-    } catch (_) {
-      return false;
-    }
+    return tcpPrint(printer.ip.trim(), printer.port, data, timeout);
   }
 
   /// Convierte hex string ESC/POS a bytes e imprime.

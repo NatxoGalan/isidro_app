@@ -10,6 +10,7 @@ class Constants {
   static const String collectionPayments = 'payments';
   static const String collectionUsers = 'users';
   static const String collectionPrinters = 'printers';
+  static const String collectionPrintJobs = 'printJobs';
   static const String defaultVenueId = 'isidro-bar';
   static const String defaultVenueName = 'LaSede';
   static const String currencySymbol = '€';

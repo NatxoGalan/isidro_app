@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/constants.dart';
 import '../../data/models/order_dto.dart';
@@ -9,10 +10,26 @@ class CartNotifier extends StateNotifier<CartState> {
   final OrderRepository _orderRepository;
   final TableRepository _tableRepository;
   String? _currentOrderId;
+  StreamSubscription<OrderEntity?>? _orderSubscription;
 
   CartNotifier(this._orderRepository, this._tableRepository) : super(const CartState());
 
   String? get currentOrderId => _currentOrderId;
+
+  /// Items con cantidad pendiente de enviar a cocina.
+  List<OrderItemEntity> get unsentItems =>
+      state.items.where((i) => i.unsentQuantity > 0).toList();
+
+  /// Marca todo lo actual como enviado a cocina (tras imprimir el delta).
+  Future<void> markItemsSent() async {
+    if (state.items.every((i) => i.unsentQuantity == 0)) return;
+    state = state.copyWith(
+      items: state.items
+          .map((i) => i.copyWith(sentQuantity: i.quantity))
+          .toList(),
+    );
+    await _saveDraft();
+  }
 
   void addItem(OrderItemEntity item) {
     final existingIndex = state.items.indexWhere(
@@ -76,36 +93,70 @@ class CartNotifier extends StateNotifier<CartState> {
     _saveDraft();
   }
 
-  /// Abre una mesa: carga borrador existente desde Firestore o empieza vacío
+  /// Abre una mesa: carga borrador existente desde Firestore o empieza vacío.
+  /// Además se suscribe en vivo: lo que añada otro dispositivo aparece solo.
   Future<void> setTable(String? tableId, String? tableNumber, {String? existingOrderId}) async {
     if (tableId == state.tableId) return;
+    await _orderSubscription?.cancel();
+    _orderSubscription = null;
 
     if (existingOrderId != null && existingOrderId.isNotEmpty) {
       _currentOrderId = existingOrderId;
       await _loadDraft(existingOrderId);
       state = state.copyWith(tableId: tableId, tableNumber: tableNumber);
+      _orderSubscription = _orderRepository
+          .watchOrder(existingOrderId)
+          .listen(_onRemoteOrder, onError: (_) {});
     } else {
       _currentOrderId = null;
       state = CartState(tableId: tableId, tableNumber: tableNumber);
     }
   }
 
-  /// Carga un borrador desde Firestore
+  /// Carga un borrador desde Firestore (draft o pendiente de cocina).
   Future<void> _loadDraft(String orderId) async {
     try {
       final stream = _orderRepository.watchOrder(orderId);
       final order = await stream.first;
-      if (order != null && order.status == OrderStatus.draft) {
-        state = CartState(
-          items: order.items,
-          isTakeaway: order.isTakeaway,
-          printerTarget: order.printerTarget.name,
-          kitchenNotes: order.cashierNotes,
-        );
+      if (order != null) {
+        _applyRemoteOrder(order);
       }
     } catch (_) {
       state = const CartState();
     }
+  }
+
+  /// Llega un cambio remoto de la orden (otro dispositivo).
+  /// Se adopta si difiere del local; el eco del propio guardado es
+  /// idéntico y se ignora, así no hay bucles.
+  void _onRemoteOrder(OrderEntity? order) {
+    if (order == null) return;
+    if (order.status == OrderStatus.paid ||
+        order.status == OrderStatus.cancelled) {
+      return;
+    }
+    _applyRemoteOrder(order);
+  }
+
+  void _applyRemoteOrder(OrderEntity order) {
+    final remoteSig = _itemsSignature(order.items);
+    final localSig = _itemsSignature(state.items);
+    final sameNotes = state.kitchenNotes == order.cashierNotes;
+    final sameTakeaway = state.isTakeaway == order.isTakeaway;
+    final sameTarget = state.printerTarget == order.printerTarget.name;
+    if (remoteSig == localSig && sameNotes && sameTakeaway && sameTarget) {
+      return;
+    }
+    state = state.copyWith(
+      items: order.items,
+      isTakeaway: order.isTakeaway,
+      printerTarget: order.printerTarget.name,
+      kitchenNotes: order.cashierNotes,
+    );
+  }
+
+  String _itemsSignature(List<OrderItemEntity> items) {
+    return items.map((i) => i.toMap().toString()).join('|');
   }
 
   /// Guarda borrador en Firestore
@@ -174,6 +225,8 @@ class CartNotifier extends StateNotifier<CartState> {
 
   /// Cierra la mesa: marca como paid y libera
   Future<void> closeTable() async {
+    await _orderSubscription?.cancel();
+    _orderSubscription = null;
     if (_currentOrderId != null) {
       try {
         await _orderRepository.updateOrder(_currentOrderId!, {
@@ -192,9 +245,17 @@ class CartNotifier extends StateNotifier<CartState> {
     state = const CartState();
   }
 
-  void clear() {
+  Future<void> clear() async {
+    await _orderSubscription?.cancel();
+    _orderSubscription = null;
     _currentOrderId = null;
     state = const CartState();
+  }
+
+  @override
+  void dispose() {
+    _orderSubscription?.cancel();
+    super.dispose();
   }
 
   double get subtotal => state.items.fold(0, (sum, item) => sum + (item.unitPrice * item.quantity));

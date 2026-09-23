@@ -5,6 +5,7 @@ import '../models/order_dto.dart';
 import '../models/product_dto.dart';
 import '../models/category_dto.dart';
 import '../models/printer_dto.dart';
+import '../models/print_job_dto.dart';
 
 class FirebaseFirestoreDatasource {
   final FirebaseFirestore _firestore;
@@ -194,5 +195,108 @@ class FirebaseFirestoreDatasource {
 
   Future<void> deletePrinter(String venueId, String printerId) async {
     await _printersRef(venueId).doc(printerId).delete();
+  }
+
+  CollectionReference<Map<String, dynamic>> _jobsRef(String venueId) {
+    return _firestore
+        .collection(Constants.collectionVenues)
+        .doc(venueId)
+        .collection(Constants.collectionPrintJobs);
+  }
+
+  /// Trabajos pendientes de imprimir (relay para dispositivos sin WiFi).
+  Stream<List<PrintJobEntity>> watchPendingJobs(String venueId) {
+    return _jobsRef(venueId)
+        .where('status', isEqualTo: PrintJobStatus.pending.name)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => PrintJobEntity.fromFirestore(doc))
+            .toList());
+  }
+
+  /// Todos los trabajos recientes (para ver la cola en Impresoras).
+  Stream<List<PrintJobEntity>> watchRecentJobs(String venueId, {int limit = 30}) {
+    return _jobsRef(venueId)
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => PrintJobEntity.fromFirestore(doc))
+            .toList());
+  }
+
+  Future<String> addPrintJob(String venueId, Map<String, dynamic> data) async {
+    final ref = await _jobsRef(venueId).add(data);
+    return ref.id;
+  }
+
+  /// Reclama un trabajo de forma atómica: solo el primero lo consigue.
+  /// Devuelve true si este dispositivo se lo ha quedado.
+  Future<bool> claimPrintJob(String venueId, String jobId, String deviceId) async {
+    final doc = _jobsRef(venueId).doc(jobId);
+    try {
+      final claimed = await _firestore.runTransaction((tx) async {
+        final snap = await tx.get(doc);
+        if (!snap.exists) return false;
+        final data = snap.data() as Map<String, dynamic>;
+        if (data['status'] != PrintJobStatus.pending.name) return false;
+        tx.update(doc, {
+          'status': PrintJobStatus.printing.name,
+          'claimedBy': deviceId,
+        });
+        return true;
+      });
+      return claimed;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> finishPrintJob(
+    String venueId,
+    String jobId, {
+    required bool ok,
+    String? error,
+  }) async {
+    await _jobsRef(venueId).doc(jobId).update({
+      'status': ok ? PrintJobStatus.done.name : PrintJobStatus.failed.name,
+      'printedAt': FieldValue.serverTimestamp(),
+      'error': error,
+    });
+  }
+
+  Future<void> requeuePrintJob(String venueId, String jobId) async {
+    await _jobsRef(venueId).doc(jobId).update({
+      'status': PrintJobStatus.pending.name,
+      'claimedBy': null,
+      'error': null,
+    });
+  }
+
+  Future<void> deletePrintJob(String venueId, String jobId) async {
+    await _jobsRef(venueId).doc(jobId).delete();
+  }
+
+  /// Borra trabajos terminados (done/failed) más antiguos de [olderThan].
+  Future<void> deleteOldJobs(String venueId, DateTime olderThan) async {
+    final snap = await _jobsRef(venueId)
+        .where('status', whereIn: [
+          PrintJobStatus.done.name,
+          PrintJobStatus.failed.name,
+        ])
+        .get();
+    final batch = _firestore.batch();
+    var count = 0;
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final ts = data['printedAt'] as Timestamp? ??
+          data['createdAt'] as Timestamp?;
+      if (ts != null && ts.toDate().isBefore(olderThan)) {
+        batch.delete(doc.reference);
+        count++;
+      }
+      if (count >= 400) break;
+    }
+    if (count > 0) await batch.commit();
   }
 }
