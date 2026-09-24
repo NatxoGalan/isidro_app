@@ -88,13 +88,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                       children: [
                         Row(
                           children: [
-                            Text(
-                              'LaSede',
-                              style: GoogleFonts.inter(
-                                fontSize: 34,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.label,
-                              ),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  'LaSede',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 34,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.label,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.only(bottom: 6),
+                                  child: Text(
+                                    'v${Constants.appVersion}',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: AppColors.secondaryLabel,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             const Spacer(),
                             _HeaderBadge(

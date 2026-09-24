@@ -1,6 +1,6 @@
 class Constants {
   static const String appName = 'LaSede';
-  static const String appVersion = '1.0.0';
+  static const String appVersion = '1.0.3';
   static const String collectionVenues = 'venues';
   static const String collectionZones = 'zones';
   static const String collectionTables = 'tables';

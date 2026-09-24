@@ -198,8 +198,7 @@ class EscPosGenerator {
   }
 
   /// Genera factura proforma (ticket de cuenta antes de cerrar la mesa).
-  /// [minLines] garantiza una longitud mínima de ticket (en líneas normales;
-  /// las de doble altura cuentan doble) rellenando con blancos antes del pie.
+  /// Ticket compacto: solo contenido, sin relleno.
   static List<int> generateBillTicket({
     required String orderId,
     required String tableNumber,
@@ -210,7 +209,6 @@ class EscPosGenerator {
     String? paymentMethod,
     String? waiterName,
     String venueName = 'La Sede',
-    int minLines = 32,
     required DateTime createdAt,
   }) {
     final bytes = <int>[];
@@ -269,17 +267,8 @@ class EscPosGenerator {
     bytes.addAll(_normalSize);
     bytes.addAll(_boldOff);
 
-    final hasPayment = paymentMethod != null && paymentMethod.isNotEmpty;
-    if (hasPayment) {
+    if (paymentMethod != null && paymentMethod.isNotEmpty) {
       bytes.addAll(_enc('Pagado: $paymentMethod\n'));
-    }
-
-    // Relleno hasta longitud mínima: local(2) + proforma(1) + fecha(1) +
-    // atendido(1) + cabecera(1) + items(N) + sep(1) + total(2) + pagado(0/1)
-    final used = 6 + items.length + 1 + 2 + (hasPayment ? 1 : 0);
-    final pad = (minLines - used - 2).clamp(0, minLines); // -2: sep + gracias
-    for (var i = 0; i < pad; i++) {
-      bytes.addAll(_enc('\n'));
     }
 
     bytes.addAll(_enc('$_sep\n'));
