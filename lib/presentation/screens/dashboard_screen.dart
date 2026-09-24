@@ -50,8 +50,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     await seed.seedIfEmpty();
     if (mounted) {
       ref.read(tableProvider.notifier).watchTables(Constants.defaultVenueId);
-      // Estación de impresión: procesar trabajos pendientes en este equipo
-      ref.read(printStationProvider).start();
+      // Estación de impresión (solo cuentas normales; en pruebas no se imprime)
+      if (!ref.read(isTestModeProvider)) {
+        ref.read(printStationProvider).start();
+      }
     }
   }
 
@@ -115,6 +117,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                               ],
                             ),
                             const Spacer(),
+                            if (ref.watch(isTestModeProvider))
+                              Container(
+                                margin:
+                                    const EdgeInsets.only(right: 8),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: AppColors.orange
+                                      .withValues(alpha: 0.15),
+                                  borderRadius:
+                                      BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  'PRUEBAS',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.orange,
+                                  ),
+                                ),
+                              ),
                             _HeaderBadge(
                               occupied: occupied,
                               total: allTables.length,

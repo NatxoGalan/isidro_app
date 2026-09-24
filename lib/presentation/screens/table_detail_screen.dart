@@ -523,6 +523,20 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
       escPosHex: escPosHex,
     );
 
+    // Modo pruebas: simular sin tocar red ni relay
+    if (ref.read(isTestModeProvider)) {
+      await notifier.markItemsSent();
+      await notifier.sendToKitchen();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Modo pruebas: comanda simulada (sin imprimir)'),
+          ),
+        );
+      }
+      return;
+    }
+
     // 1) Intento directo (instantáneo si este móvil tiene WiFi)
     final allPrinters = ref.read(printersProvider).value ?? [];
     final targets = printersForWorkspace(allPrinters, PrinterWorkspace.kitchen);
@@ -657,6 +671,10 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
         message = 'Sin conexión directa: proforma encolada, se imprimirá sola';
         bg = AppColors.orange;
         break;
+      case 'simulated':
+        message = 'Modo pruebas: proforma simulada (sin imprimir)';
+        bg = AppColors.blue;
+        break;
       default:
         message = 'No se pudo imprimir la proforma';
         bg = AppColors.red;
@@ -680,6 +698,7 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
     required String type,
     required String tableNumber,
   }) async {
+    if (ref.read(isTestModeProvider)) return 'simulated';
     if (printer != null) {
       if (await PrinterService.printBytes(printer, bytes)) return 'printed';
     }
@@ -767,12 +786,16 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
                     ? 'Pago completado. Cuenta impresa. Mesa liberada'
                     : billResult == 'queued'
                         ? 'Pago completado. Cuenta encolada, se imprimirá sola'
-                        : 'Pago completado. Mesa liberada (cuenta no impresa)'),
+                        : billResult == 'simulated'
+                            ? 'Pago completado (modo pruebas, sin imprimir)'
+                            : 'Pago completado. Mesa liberada (cuenta no impresa)'),
                 backgroundColor: billResult == 'failed'
                     ? AppColors.red
                     : billResult == 'printed'
                         ? AppColors.green
-                        : AppColors.orange,
+                        : billResult == 'simulated'
+                            ? AppColors.blue
+                            : AppColors.orange,
               ),
             );
           }

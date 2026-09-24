@@ -237,6 +237,12 @@ final billTicketGeneratorProvider = Provider<Function({
   };
 });
 
+/// true cuando la cuenta logueada es de pruebas: los flujos funcionan
+/// igual pero la impresión se simula (ni red directa ni relay).
+final isTestModeProvider = Provider<bool>((ref) {
+  return ref.watch(authProvider).value?.isTest ?? false;
+});
+
 /// Stream de impresoras configuradas (Firestore, compartido entre dispositivos)
 final printersProvider = StreamProvider<List<PrinterEntity>>((ref) {
   return ref

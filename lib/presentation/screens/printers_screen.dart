@@ -44,6 +44,17 @@ class _PrintersScreenState extends ConsumerState<PrintersScreen> {
   }
 
   Future<void> _testPrint(PrinterEntity printer) async {
+    if (ref.read(isTestModeProvider)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Modo pruebas: test simulado en ${printer.name}'),
+            backgroundColor: AppColors.blue,
+          ),
+        );
+      }
+      return;
+    }
     final ok =
         await ref.read(printerActionsProvider.notifier).printTest(printer);
     String message;
@@ -170,7 +181,11 @@ class _PrintersScreenState extends ConsumerState<PrintersScreen> {
           ),
         ],
       ),
-      body: printersAsync.when(
+      body: Column(
+        children: [
+          if (ref.watch(isTestModeProvider)) const _TestModeBanner(),
+          Expanded(
+            child: printersAsync.when(
         data: (printers) {
           for (final p in printers) {
             if (!_status.containsKey(p.id) && !_checking.contains(p.id)) {
@@ -249,6 +264,32 @@ class _PrintersScreenState extends ConsumerState<PrintersScreen> {
         loading: () =>
             const Center(child: CircularProgressIndicator(color: AppColors.blue)),
         error: (e, _) => Center(child: Text('Error: $e')),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Aviso de modo pruebas ────────────────────────────────────────────
+class _TestModeBanner extends StatelessWidget {
+  const _TestModeBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      color: AppColors.orange,
+      child: Text(
+        'MODO PRUEBAS · nada se imprime de verdad',
+        textAlign: TextAlign.center,
+        style: GoogleFonts.inter(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
       ),
     );
   }

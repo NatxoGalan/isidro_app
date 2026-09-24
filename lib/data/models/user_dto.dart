@@ -7,6 +7,7 @@ class UserEntity {
   final String displayName;
   final String? venueId;
   final bool active;
+  final bool isTest;
   final DateTime? lastLoginAt;
 
   const UserEntity({
@@ -15,6 +16,7 @@ class UserEntity {
     required this.displayName,
     this.venueId,
     this.active = true,
+    this.isTest = false,
     this.lastLoginAt,
   });
 
@@ -26,6 +28,7 @@ class UserEntity {
       displayName: data['displayName'] ?? '',
       venueId: data['venueId'],
       active: data['active'] ?? true,
+      isTest: data['isTest'] ?? false,
       lastLoginAt: (data['lastLoginAt'] as Timestamp?)?.toDate(),
     );
   }
@@ -35,6 +38,7 @@ class UserEntity {
     'displayName': displayName,
     'venueId': venueId,
     'active': active,
+    'isTest': isTest,
     'lastLoginAt': lastLoginAt,
   };
 }
