@@ -946,6 +946,29 @@ class _CartItemCard extends ConsumerWidget {
                   style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 15, color: AppColors.label),
                 ),
               ),
+              if (item.unsentQuantity == 0)
+                const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Icon(Icons.check_circle_rounded,
+                      color: AppColors.green, size: 18),
+                )
+              else
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.orange.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${item.unsentQuantity} nuevo${item.unsentQuantity == 1 ? '' : 's'}',
+                    style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.orange),
+                  ),
+                ),
               Text(
                 Formatters.currency(lineTotal),
                 style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.blue),

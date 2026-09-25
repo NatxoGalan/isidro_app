@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/constants.dart';
 import '../../data/datasources/firebase_auth_datasource.dart';
 import '../../data/models/user_dto.dart';
 
@@ -37,11 +38,16 @@ class AuthNotifier extends StateNotifier<AsyncValue<UserEntity?>> {
   UserEntity? get currentUser => _authDatasource.currentUserToEntity();
 
   UserEntity _userFromFirebase(User user) {
+    final email = user.email ?? '';
+    final isTest = Constants.isTestAccount(email);
+    var displayName = user.displayName ?? '';
+    if (displayName.isEmpty && isTest) displayName = 'Test';
     return UserEntity(
       id: user.uid,
-      email: user.email ?? '',
-      displayName: user.displayName ?? '',
+      email: email,
+      displayName: displayName,
       active: true,
+      isTest: isTest,
     );
   }
 }

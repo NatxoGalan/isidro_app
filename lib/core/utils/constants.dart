@@ -26,6 +26,12 @@ class Constants {
   static const String orderCancelled = 'cancelled';
   static const String printerBar = 'bar';
   static const String printerKitchen = 'kitchen';
+  /// Cuenta de pruebas: con ella todo se simula (no imprime nada).
+  static const String testAccountEmail = 'natxotest@gmail.com';
+
+  static bool isTestAccount(String email) {
+    return email.trim().toLowerCase() == testAccountEmail;
+  }
   /// Categorías que salen en ticket separado de bebidas (pero a Cocina).
   static const List<String> drinksCategoryIds = ['bebidas', 'varios', 'cafeteria'];
   static const String methodCard = 'card';

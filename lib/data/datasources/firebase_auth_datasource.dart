@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../core/utils/constants.dart';
 import '../models/user_dto.dart';
 
 class FirebaseAuthDatasource {
@@ -19,11 +20,16 @@ class FirebaseAuthDatasource {
   UserEntity? currentUserToEntity() {
     final user = _auth.currentUser;
     if (user == null) return null;
+    final email = user.email ?? '';
+    final isTest = Constants.isTestAccount(email);
+    var displayName = user.displayName ?? '';
+    if (displayName.isEmpty && isTest) displayName = 'Test';
     return UserEntity(
       id: user.uid,
-      email: user.email ?? '',
-      displayName: user.displayName ?? '',
+      email: email,
+      displayName: displayName,
       active: true,
+      isTest: isTest,
     );
   }
 }
