@@ -225,7 +225,7 @@ class EscPosGenerator {
     // Cabecera
     bytes.addAll(_centerAlign);
     bytes.addAll(_boldOn);
-    bytes.addAll(_doubleHeight);
+    bytes.addAll(_doubleSize);
     bytes.addAll(_enc('$venueName\n'));
     bytes.addAll(_normalSize);
     bytes.addAll(_enc('Factura proforma\n'));
@@ -254,23 +254,25 @@ class EscPosGenerator {
     bytes.addAll(_enc('$header\n'));
     bytes.addAll(_boldOff);
 
-    // Items
+    // Items en doble altura (mismo ancho: no se descuadran columnas)
     for (final item in items) {
       final itemTotal = item.unitPrice * item.quantity;
       final qty = '${item.quantity} x ';
       final name = _truncate(item.name, nameW);
       final line = '${qty.padRight(qtyW)}${name.padRight(nameW)}'
           '${_price(item.unitPrice).padLeft(pvpW)}${_price(itemTotal).padLeft(impW)}';
+      bytes.addAll(_doubleHeight);
       bytes.addAll(_enc('$line\n'));
+      bytes.addAll(_normalSize);
     }
 
     bytes.addAll(_enc('$_sep\n'));
 
-    // Total en grande
+    // Total en doble tamaño (21 columnas a doble ancho)
     final totalStr = _price(total);
     bytes.addAll(_boldOn);
-    bytes.addAll(_doubleHeight);
-    bytes.addAll(_enc('${'Total'.padRight(_cols - totalStr.length)}$totalStr\n'));
+    bytes.addAll(_doubleSize);
+    bytes.addAll(_enc('${'Total'.padRight(21 - totalStr.length)}$totalStr\n'));
     bytes.addAll(_normalSize);
     bytes.addAll(_boldOff);
 
@@ -281,7 +283,9 @@ class EscPosGenerator {
     bytes.addAll(_enc('$_sep\n'));
     bytes.addAll(_centerAlign);
     bytes.addAll(_boldOn);
+    bytes.addAll(_doubleHeight);
     bytes.addAll(_enc('Gracias por su visita\n'));
+    bytes.addAll(_normalSize);
     bytes.addAll(_boldOff);
 
     bytes.addAll(_feedLines);
