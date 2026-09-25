@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../config/theme.dart';
 import '../../core/utils/constants.dart';
+import '../../data/models/order_dto.dart';
 import '../../data/models/table_dto.dart';
 import '../../services/seed_service.dart';
 import '../providers/table_provider.dart';
@@ -60,6 +61,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final tablesAsync = ref.watch(tableProvider);
+    // Stream global de órdenes abiertas: vivo toda la sesión (móvil y web)
+    final openOrdersAsync = ref.watch(openOrdersProvider);
+    final openOrders = openOrdersAsync.value ?? [];
+    final orderByTable = <String, OrderEntity>{};
+    for (final o in openOrders) {
+      orderByTable[o.tableId] = o;
+    }
     final allTables = tablesAsync.value ?? [];
     final selectedZone = ref.watch(selectedZoneProvider);
     final zoneTables =
@@ -182,6 +190,38 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 ),
               ),
               const SizedBox(height: 8),
+              // Aviso si el stream de pedidos falla (reconexión manual)
+              if (openOrdersAsync.hasError)
+                GestureDetector(
+                  onTap: () => ref.invalidate(openOrdersProvider),
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.orange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.sync_problem_rounded,
+                            size: 16, color: AppColors.orange),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Pedidos sin actualizar · toca para reintentar',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.orange,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               // Tables Grid
               Expanded(
                 child: tablesAsync.when(
@@ -239,6 +279,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                             final table = zoneTables[index];
                             return TableCard(
                               table: table,
+                              order: orderByTable[table.id],
                               onTap: () => _openTable(table),
                             );
                           },

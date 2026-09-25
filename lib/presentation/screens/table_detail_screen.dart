@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../config/theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/constants.dart';
+import '../../data/models/category_dto.dart';
 import '../../data/models/order_dto.dart';
 import '../../data/models/print_dto.dart';
 import '../../data/models/print_job_dto.dart';
@@ -29,21 +30,44 @@ class TableDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<TableDetailScreen> createState() => _TableDetailScreenState();
 }
 
-class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
+class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
+    with WidgetsBindingObserver {
   String _selectedCategory = 'Todos';
   String _searchQuery = '';
   bool _showProductPicker = false;
 
-  static const Map<String, String> _categorySlugs = {
-    'Todos': '',
-    'Tapas': 'tapas',
-    'Bocadillos': 'bocadillos',
-    'Bebidas': 'bebidas',
-    'Varios': 'varios',
-    'Cafetería': 'cafeteria',
-  };
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
-  String get _selectedCategorySlug => _categorySlugs[_selectedCategory] ?? '';
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(cartProvider.notifier).ensureWatching();
+    }
+  }
+
+  /// true si el item es de bebidas/varios/cafetería (ticket separado).
+  bool _isDrinks(OrderItemEntity i) =>
+      Constants.drinksCategoryIds.contains(i.categoryId);
+
+  /// Slug (id) de la categoría seleccionada, resuelto desde Firestore.
+  String _slugFor(List<CategoryEntity>? categories, String name) {
+    if (name == 'Todos') return '';
+    if (categories == null) return '';
+    for (final c in categories) {
+      if (c.name == name) return c.id;
+    }
+    return '';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -205,6 +229,8 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
   }
 
   Widget _buildCartView(CartState cart, String tableNumber) {
+    final unsentCount =
+        cart.items.fold<int>(0, (s, i) => s + i.unsentQuantity);
     return Column(
       children: [
         // Items list
@@ -277,8 +303,17 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
                 child: SizedBox(
                   height: 48,
                   child: OutlinedButton.icon(
-                    icon: const Icon(Icons.print_rounded, size: 18),
-                    label: Text('Cocina', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14)),
+                    icon: Icon(
+                        unsentCount > 0
+                            ? Icons.print_rounded
+                            : Icons.check_circle_rounded,
+                        size: 18),
+                    label: Text(
+                        unsentCount > 0
+                            ? 'Cocina ($unsentCount)'
+                            : 'Enviado ✓',
+                        style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w600, fontSize: 14)),
                     onPressed: () => _sendToKitchen(cart, tableNumber),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.orange,
@@ -386,10 +421,31 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              CategoryChips(
-                categories: const ['Todos', 'Tapas', 'Bocadillos', 'Bebidas', 'Varios', 'Cafetería'],
-                selected: _selectedCategory,
-                onChanged: (c) => setState(() => _selectedCategory = c),
+              Builder(
+                builder: (context) {
+                  final cats = ref.watch(categoriesProvider).valueOrNull;
+                  final labels = [
+                    'Todos',
+                    if (cats != null)
+                      ...cats.map((c) => c.name)
+                    else
+                      ...const [
+                        'Tapas',
+                        'Bocadillos',
+                        'Bebidas',
+                        'Varios',
+                        'Cafetería'
+                      ],
+                  ];
+                  final selected = labels.contains(_selectedCategory)
+                      ? _selectedCategory
+                      : 'Todos';
+                  return CategoryChips(
+                    categories: labels,
+                    selected: selected,
+                    onChanged: (c) => setState(() => _selectedCategory = c),
+                  );
+                },
               ),
             ],
           ),
@@ -397,8 +453,10 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
         Expanded(
           child: productsAsync.when(
             data: (products) {
+              final cats = ref.watch(categoriesProvider).valueOrNull;
+              final slug = _slugFor(cats, _selectedCategory);
               final filtered = products.where((p) {
-                final matchesCategory = _selectedCategory == 'Todos' || p.categoryId == _selectedCategorySlug;
+                final matchesCategory = _selectedCategory == 'Todos' || p.categoryId == slug;
                 final matchesSearch = _searchQuery.isEmpty || p.name.toLowerCase().contains(_searchQuery.toLowerCase());
                 return matchesCategory && matchesSearch;
               }).toList();
@@ -435,6 +493,12 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
                         isTakeaway: false,
                         status: OrderItemStatus.pending,
                         createdAt: DateTime.now(),
+                        categoryId: p.categoryId,
+                        categoryName: cats
+                            ?.where((c) => c.id == p.categoryId)
+                            .map((c) => c.name)
+                            .firstOrNull ??
+                            '',
                       ));
                       setState(() => _showProductPicker = false);
                     },
@@ -453,9 +517,16 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
   void _sendToKitchen(CartState cart, String tableNumber) async {
     if (cart.isEmpty) return;
 
-    // Solo lo nuevo: lo ya enviado no se reimprime
     final notifier = ref.read(cartProvider.notifier);
-    final deltas = notifier.unsentItems;
+    // Leer estado fresco de Firestore: evita reimprimir por copia desactualizada
+    await notifier.refreshFromServer();
+    if (!mounted) return;
+    final fresh = ref.read(cartProvider);
+    if (fresh.isEmpty) return;
+
+    // Solo lo nuevo: lo ya enviado no se reimprime
+    final deltas =
+        fresh.items.where((i) => i.unsentQuantity > 0).toList();
     if (deltas.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -465,23 +536,17 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
       return;
     }
 
-    final itemNotesList = deltas
-        .where((i) => i.notes.isNotEmpty)
-        .map((i) => '${i.productName}: ${i.notes}')
-        .toList();
-    final allItemNotes = itemNotesList.join('\n');
-
-    final combinedNotes = [
-      if (cart.kitchenNotes.isNotEmpty) cart.kitchenNotes,
-      if (allItemNotes.isNotEmpty) '--- Notas por plato ---\n$allItemNotes',
-    ].join('\n');
-
     final waiterName = ref.read(authProvider).value?.displayName;
+    final orderId = notifier.currentOrderId ?? 'draft';
+    final now = DateTime.now();
 
-    final escPosBytes = EscPosGenerator.generateKitchenTicket(
-      orderId: notifier.currentOrderId ?? 'draft',
-      tableNumber: tableNumber,
-      items: deltas
+    // Partir en grupos: comida y bebidas salen en tickets separados
+    // (ambos a las impresoras de Cocina) para no mezclar.
+    final food = deltas.where((i) => !_isDrinks(i)).toList();
+    final drinks = deltas.where(_isDrinks).toList();
+
+    List<OrderItemData> toTicketData(List<OrderItemEntity> group) {
+      return group
           .map((i) => OrderItemData(
                 name: i.productName,
                 quantity: i.unsentQuantity,
@@ -495,33 +560,68 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
                 notes: i.notes,
                 isTakeaway: i.isTakeaway,
               ))
-          .toList(),
-      notes: combinedNotes.isNotEmpty ? combinedNotes : null,
-      kitchenNotes: null,
-      waiterName: waiterName,
-      createdAt: DateTime.now(),
-    );
+          .toList();
+    }
 
-    final escPosHex = EscPosGenerator.bytesToHex(escPosBytes);
+    String groupNotes(List<OrderItemEntity> group) {
+      final itemNotes = group
+          .where((i) => i.notes.isNotEmpty)
+          .map((i) => '${i.productName}: ${i.notes}')
+          .join('\n');
+      return [
+        if (fresh.kitchenNotes.isNotEmpty) fresh.kitchenNotes,
+        if (itemNotes.isNotEmpty) '--- Notas por plato ---\n$itemNotes',
+      ].join('\n');
+    }
 
-    final printItems = deltas.map((i) => PrintItemData(
-      productId: i.productId,
-      name: i.productName,
-      quantity: i.unsentQuantity,
-      unitPrice: i.unitPrice,
-      modifiers: i.modifiers.map((m) => m.optionName ?? m.modifierName).toList(),
-      notes: i.notes,
-      isTakeaway: i.isTakeaway,
-    )).toList();
+    List<PrintItemData> toHistoryData(List<OrderItemEntity> group) {
+      return group
+          .map((i) => PrintItemData(
+                productId: i.productId,
+                name: i.productName,
+                quantity: i.unsentQuantity,
+                unitPrice: i.unitPrice,
+                modifiers: i.modifiers
+                    .map((m) => m.optionName ?? m.modifierName)
+                    .toList(),
+                notes: i.notes,
+                isTakeaway: i.isTakeaway,
+              ))
+          .toList();
+    }
 
-    ref.read(printQueueProvider.notifier).addTicket(
-      orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'draft',
-      tableNumber: tableNumber,
-      type: PrintType.kitchen,
-      items: printItems,
-      notes: combinedNotes.isNotEmpty ? combinedNotes : null,
-      escPosHex: escPosHex,
-    );
+    // Un ticket por grupo no vacío
+    final groups = <({String label, List<OrderItemEntity> items})>[
+      if (food.isNotEmpty) (label: '', items: food),
+      if (drinks.isNotEmpty) (label: 'BEBIDAS', items: drinks),
+    ];
+    final tickets = <({String label, List<int> bytes, String hex})>[];
+    for (final g in groups) {
+      final notes = groupNotes(g.items);
+      final bytes = EscPosGenerator.generateKitchenTicket(
+        orderId: orderId,
+        tableNumber: tableNumber,
+        items: toTicketData(g.items),
+        notes: notes.isNotEmpty ? notes : null,
+        kitchenNotes: null,
+        waiterName: waiterName,
+        stationLabel: g.label.isNotEmpty ? g.label : null,
+        createdAt: now,
+      );
+      tickets.add((
+        label: g.label,
+        bytes: bytes,
+        hex: EscPosGenerator.bytesToHex(bytes),
+      ));
+      ref.read(printQueueProvider.notifier).addTicket(
+            orderId: orderId,
+            tableNumber: tableNumber,
+            type: PrintType.kitchen,
+            items: toHistoryData(g.items),
+            notes: notes.isNotEmpty ? notes : null,
+            escPosHex: EscPosGenerator.bytesToHex(bytes),
+          );
+    }
 
     // Modo pruebas: simular sin tocar red ni relay
     if (ref.read(isTestModeProvider)) {
@@ -539,57 +639,75 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen> {
 
     // 1) Intento directo (instantáneo si este móvil tiene WiFi)
     final allPrinters = ref.read(printersProvider).value ?? [];
-    final targets = printersForWorkspace(allPrinters, PrinterWorkspace.kitchen);
+    final targets =
+        printersForWorkspace(allPrinters, PrinterWorkspace.kitchen);
 
     var directOk = 0;
-    final failedTargets = <PrinterEntity>[];
-    for (final p in targets) {
-      // ignore: use_build_context_synchronously
-      if (await PrinterService.printBytes(p, escPosBytes)) {
-        directOk++;
-      } else {
-        failedTargets.add(p);
-      }
-    }
-
-    // 2) Lo que no salió directo se encola: lo imprimirá la tablet con WiFi
+    var targetCount = 0;
     var queued = 0;
-    if (failedTargets.isNotEmpty || targets.isEmpty) {
-      try {
-        final deviceId = await getDeviceId();
-        final repo = ref.read(printerRepositoryProvider);
-        final toQueue =
-            targets.isEmpty ? <PrinterEntity?>[null] : failedTargets;
-        for (final p in toQueue) {
-          await repo.enqueueJob(
-            venueId: Constants.defaultVenueId,
-            printerId: p?.id ?? '',
-            printerName: p?.name ?? 'Cocina',
-            workspace: PrinterWorkspace.kitchen,
-            type: PrintJobType.kitchen,
-            tableNumber: tableNumber,
-            escPosHex: escPosHex,
-            createdBy: deviceId,
-          );
-          queued++;
+    String? deviceId;
+    for (final t in tickets) {
+      for (final p in targets) {
+        targetCount++;
+        // ignore: use_build_context_synchronously
+        if (await PrinterService.printBytes(p, t.bytes)) {
+          directOk++;
+        } else {
+          // 2) Lo que no sale directo se encola: lo imprime la tablet con WiFi
+          try {
+            deviceId ??= await getDeviceId();
+            await ref.read(printerRepositoryProvider).enqueueJob(
+                  venueId: Constants.defaultVenueId,
+                  printerId: p.id,
+                  printerName:
+                      t.label.isNotEmpty ? '${p.name} (${t.label})' : p.name,
+                  workspace: PrinterWorkspace.kitchen,
+                  type: PrintJobType.kitchen,
+                  tableNumber: tableNumber,
+                  escPosHex: t.hex,
+                  createdBy: deviceId,
+                );
+            queued++;
+          } catch (_) {}
         }
-      } catch (_) {}
+      }
+      if (targets.isEmpty) {
+        try {
+          deviceId ??= await getDeviceId();
+          await ref.read(printerRepositoryProvider).enqueueJob(
+                venueId: Constants.defaultVenueId,
+                printerId: '',
+                printerName:
+                    t.label.isNotEmpty ? 'Cocina (${t.label})' : 'Cocina',
+                workspace: PrinterWorkspace.kitchen,
+                type: PrintJobType.kitchen,
+                tableNumber: tableNumber,
+                escPosHex: t.hex,
+                createdBy: deviceId,
+              );
+          queued++;
+        } catch (_) {}
+      }
     }
 
     // Marcar como enviado + orden a pendiente (aunque vaya por relay)
     await notifier.markItemsSent();
     await notifier.sendToKitchen();
 
+    final groupWord =
+        groups.map((g) => g.label.isNotEmpty ? g.label : 'cocina').join(' + ');
     String message;
     Color bg;
-    if (directOk == targets.length && targets.isNotEmpty) {
-      message = 'Comanda impresa en ${targets.map((p) => p.name).join(', ')}';
+    if (directOk == targetCount && targetCount > 0) {
+      message =
+          'Comanda ($groupWord) impresa en ${targets.map((p) => p.name).join(', ')}';
       bg = AppColors.green;
     } else if (queued > 0) {
-      message = 'Sin conexión directa: encolada, se imprimirá al recuperar WiFi';
+      message =
+          'Sin conexión directa: encolada ($groupWord), se imprimirá al recuperar WiFi';
       bg = AppColors.orange;
     } else if (directOk > 0) {
-      message = 'Impresa en $directOk de ${targets.length} impresoras';
+      message = 'Impresa en $directOk de $targetCount envíos';
       bg = AppColors.orange;
     } else {
       message = 'No se pudo enviar (revisa impresoras y conexión)';

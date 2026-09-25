@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../config/theme.dart';
 import '../../core/utils/constants.dart';
 import '../../data/models/product_dto.dart';
+import '../../data/models/category_dto.dart';
 import '../providers/auth_provider.dart';
 import '../providers/product_provider.dart';
 import '../widgets/product_management_tile.dart';
@@ -19,16 +20,25 @@ class _MenuManagementScreenState extends ConsumerState<MenuManagementScreen> {
   String _selectedCategory = 'Todos';
   String _searchQuery = '';
 
-  static const Map<String, String> _categorySlugs = {
-    'Todos': '',
-    'Tapas': 'tapas',
-    'Bocadillos': 'bocadillos',
-    'Bebidas': 'bebidas',
-    'Varios': 'varios',
-    'Cafetería': 'cafeteria',
-  };
+  /// Nombres de respaldo mientras cargan las categorías de Firestore.
+  static const List<String> _fallbackCategories = [
+    'Tapas',
+    'Bocadillos',
+    'Bebidas',
+    'Varios',
+    'Cafetería',
+  ];
 
-  String get _selectedCategorySlug => _categorySlugs[_selectedCategory] ?? '';
+  List<String> _categoryNames(List<CategoryEntity>? cats) =>
+      ['Todos', ...cats?.map((c) => c.name) ?? _fallbackCategories];
+
+  String _slugFor(List<CategoryEntity>? cats, String name) {
+    if (name == 'Todos' || cats == null) return '';
+    for (final c in cats) {
+      if (c.name == name) return c.id;
+    }
+    return '';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -77,15 +87,24 @@ class _MenuManagementScreenState extends ConsumerState<MenuManagementScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  height: 32,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _categorySlugs.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 6),
-                    itemBuilder: (context, index) {
-                      final cat = _categorySlugs.keys.elementAt(index);
-                      final isSelected = _selectedCategory == cat;
+                Builder(
+                  builder: (context) {
+                    final cats =
+                        ref.watch(categoriesProvider).valueOrNull;
+                    final names = _categoryNames(cats);
+                    final selected = names.contains(_selectedCategory)
+                        ? _selectedCategory
+                        : 'Todos';
+                    return SizedBox(
+                      height: 32,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: names.length,
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(width: 6),
+                        itemBuilder: (context, index) {
+                          final cat = names[index];
+                          final isSelected = selected == cat;
                       return GestureDetector(
                         onTap: () => setState(() => _selectedCategory = cat),
                         child: AnimatedContainer(
@@ -98,8 +117,10 @@ class _MenuManagementScreenState extends ConsumerState<MenuManagementScreen> {
                           child: Text(cat, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: isSelected ? Colors.white : AppColors.secondaryLabel)),
                         ),
                       );
-                    },
-                  ),
+                        },
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -108,8 +129,12 @@ class _MenuManagementScreenState extends ConsumerState<MenuManagementScreen> {
           Expanded(
             child: productsAsync.when(
               data: (products) {
+                final slug = _slugFor(
+                    ref.watch(categoriesProvider).valueOrNull,
+                    _selectedCategory);
                 final filtered = products.where((p) {
-                  final matchesCat = _selectedCategory == 'Todos' || p.categoryId == _selectedCategorySlug;
+                  final matchesCat =
+                      _selectedCategory == 'Todos' || p.categoryId == slug;
                   final matchesSearch = _searchQuery.isEmpty || p.name.toLowerCase().contains(_searchQuery.toLowerCase());
                   return matchesCat && matchesSearch;
                 }).toList();
@@ -185,14 +210,34 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
   late String _description;
   bool _isAvailable = true;
 
-  static const List<String> _categoryDisplayNames = ['Tapas', 'Bocadillos', 'Bebidas', 'Varios', 'Cafetería'];
-  static const Map<String, String> _categorySlugs = {
+  static const Map<String, String> _fallbackSlugs = {
     'Tapas': 'tapas',
     'Bocadillos': 'bocadillos',
+    'Medios Bocadillos': 'medios-bocadillos',
     'Bebidas': 'bebidas',
     'Varios': 'varios',
     'Cafetería': 'cafeteria',
   };
+
+  /// Resuelve id de categoría desde su nombre visible.
+  String _slugForName(List<CategoryEntity>? cats, String name) {
+    if (cats != null) {
+      for (final c in cats) {
+        if (c.name == name) return c.id;
+      }
+      return 'tapas';
+    }
+    return _fallbackSlugs[name] ?? 'tapas';
+  }
+
+  String _nameForSlug(List<CategoryEntity>? cats, String? slug) {
+    if (cats != null && slug != null) {
+      for (final c in cats) {
+        if (c.id == slug) return c.name;
+      }
+    }
+    return 'Tapas';
+  }
 
   @override
   void initState() {
@@ -200,8 +245,8 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
     final p = widget.product;
     _name = p?.name ?? '';
     _price = p?.basePrice ?? 0.0;
-    final slugToDisplay = _categorySlugs.entries.where((e) => e.value == p?.categoryId).map((e) => e.key).firstOrNull;
-    _category = slugToDisplay ?? 'Tapas';
+    final cats = ref.read(categoriesProvider).valueOrNull;
+    _category = _nameForSlug(cats, p?.categoryId);
     _description = p?.description ?? '';
     _isAvailable = p?.isAvailable ?? true;
   }
@@ -245,11 +290,35 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
                         onChanged: (v) => _price = double.tryParse(v) ?? 0,
                       ),
                       const SizedBox(height: 14),
-                      DropdownButtonFormField<String>(
-                        value: _category,
-                        items: _categoryDisplayNames.map((c) => DropdownMenuItem(value: c, child: Text(c, style: GoogleFonts.inter()))).toList(),
-                        onChanged: (v) => setState(() => _category = v!),
-                        decoration: const InputDecoration(labelText: 'Categoría'),
+                      Builder(
+                        builder: (context) {
+                          final cats =
+                              ref.watch(categoriesProvider).valueOrNull;
+                          final names = cats?.map((c) => c.name).toList() ??
+                              const [
+                                'Tapas',
+                                'Bocadillos',
+                                'Bebidas',
+                                'Varios',
+                                'Cafetería'
+                              ];
+                          final value = names.contains(_category)
+                              ? _category
+                              : names.first;
+                          return DropdownButtonFormField<String>(
+                            value: value,
+                            items: names
+                                .map((c) => DropdownMenuItem(
+                                    value: c,
+                                    child: Text(c,
+                                        style: GoogleFonts.inter())))
+                                .toList(),
+                            onChanged: (v) =>
+                                setState(() => _category = v!),
+                            decoration: const InputDecoration(
+                                labelText: 'Categoría'),
+                          );
+                        },
                       ),
                       const SizedBox(height: 14),
                       TextFormField(
@@ -314,7 +383,8 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
 
-    final slug = _categorySlugs[_category] ?? 'tapas';
+    final cats = ref.read(categoriesProvider).valueOrNull;
+    final slug = _slugForName(cats, _category);
     final repo = ref.read(productRepositoryProvider);
 
     if (widget.product != null) {

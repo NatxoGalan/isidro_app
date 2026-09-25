@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/models/product_dto.dart';
 import '../../../data/models/order_dto.dart';
 import '../providers/cart_provider.dart';
+import '../providers/product_provider.dart';
 import 'modifiers_sheet.dart';
 import 'product_card.dart';
 
@@ -96,6 +97,7 @@ class _ProductGridState extends ConsumerState<ProductGrid> {
       );
       return;
     }
+    final cats = ref.read(categoriesProvider).valueOrNull;
     ref.read(cartProvider.notifier).addItem(OrderItemEntity(
       itemId: 'item_${DateTime.now().millisecondsSinceEpoch}',
       productId: product.id,
@@ -106,6 +108,12 @@ class _ProductGridState extends ConsumerState<ProductGrid> {
       modifiers: [],
       notes: '',
       createdAt: DateTime.now(),
+      categoryId: product.categoryId,
+      categoryName: cats
+              ?.where((c) => c.id == product.categoryId)
+              .map((c) => c.name)
+              .firstOrNull ??
+          '',
     ));
   }
 }

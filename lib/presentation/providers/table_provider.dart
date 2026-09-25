@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/constants.dart';
+import '../../data/models/order_dto.dart';
 import '../../data/models/table_dto.dart';
 import '../../data/repositories/table_repository.dart';
 import '../../data/repositories/order_repository.dart';
@@ -137,4 +139,13 @@ final tableProvider = StateNotifierProvider<TableNotifier, AsyncValue<List<Table
 
 final selectedZoneProvider = StateProvider<String>((ref) {
   return 'Comedor';
+});
+
+/// Todas las órdenes abiertas del local (borrador + enviadas).
+/// El Dashboard lo observa siempre: mantiene el stream vivo toda la sesión
+/// en móvil y web, y alimenta badges de mesa en tiempo real.
+final openOrdersProvider = StreamProvider<List<OrderEntity>>((ref) {
+  return ref
+      .read(orderRepositoryProvider)
+      .watchOpenOrders(Constants.defaultVenueId);
 });

@@ -108,6 +108,7 @@ final kitchenTicketGeneratorProvider = Provider<Function({
   String? notes,
   String? kitchenNotes,
   String? waiterName,
+  String? stationLabel,
   required DateTime createdAt,
 })>((ref) {
   return ({
@@ -117,6 +118,7 @@ final kitchenTicketGeneratorProvider = Provider<Function({
     String? notes,
     String? kitchenNotes,
     String? waiterName,
+    String? stationLabel,
     required DateTime createdAt,
   }) {
     final itemsData = items.map((item) => OrderItemData(
@@ -138,6 +140,7 @@ final kitchenTicketGeneratorProvider = Provider<Function({
       notes: notes,
       kitchenNotes: kitchenNotes,
       waiterName: waiterName,
+      stationLabel: stationLabel,
       createdAt: createdAt,
     );
 

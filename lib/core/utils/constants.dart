@@ -26,6 +26,8 @@ class Constants {
   static const String orderCancelled = 'cancelled';
   static const String printerBar = 'bar';
   static const String printerKitchen = 'kitchen';
+  /// Categorías que salen en ticket separado de bebidas (pero a Cocina).
+  static const List<String> drinksCategoryIds = ['bebidas', 'varios', 'cafeteria'];
   static const String methodCard = 'card';
   static const String methodCash = 'cash';
   static const String methodCashNoChange = 'cash_no_change';

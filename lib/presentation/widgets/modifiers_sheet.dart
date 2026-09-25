@@ -4,6 +4,7 @@ import '../../../data/models/product_dto.dart';
 import '../../../data/models/order_dto.dart';
 import '../../../core/utils/formatters.dart';
 import '../providers/cart_provider.dart';
+import '../providers/product_provider.dart';
 
 class ModifiersSheet extends ConsumerStatefulWidget {
   final ProductEntity product;
@@ -128,6 +129,7 @@ class _ModifiersSheetState extends ConsumerState<ModifiersSheet> {
       }
     });
 
+    final cats = ref.read(categoriesProvider).valueOrNull;
     ref.read(cartProvider.notifier).addItem(OrderItemEntity(
       itemId: 'item_${DateTime.now().millisecondsSinceEpoch}',
       productId: widget.product.id,
@@ -139,6 +141,12 @@ class _ModifiersSheetState extends ConsumerState<ModifiersSheet> {
       notes: _notesController.text,
       isTakeaway: _isTakeaway,
       createdAt: DateTime.now(),
+      categoryId: widget.product.categoryId,
+      categoryName: cats
+              ?.where((c) => c.id == widget.product.categoryId)
+              .map((c) => c.name)
+              .firstOrNull ??
+          '',
     ));
     Navigator.pop(context);
   }

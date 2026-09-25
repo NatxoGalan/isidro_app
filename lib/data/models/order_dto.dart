@@ -91,6 +91,8 @@ class OrderItemEntity {
   final OrderItemStatus status;
   final DateTime createdAt;
   final int sentQuantity;
+  final String categoryId;
+  final String categoryName;
 
   const OrderItemEntity({
     required this.itemId,
@@ -105,6 +107,8 @@ class OrderItemEntity {
     this.status = OrderItemStatus.pending,
     required this.createdAt,
     this.sentQuantity = 0,
+    this.categoryId = '',
+    this.categoryName = '',
   });
 
   factory OrderItemEntity.fromMap(Map<String, dynamic> map) {
@@ -126,6 +130,8 @@ class OrderItemEntity {
       ),
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       sentQuantity: (map['sentQuantity'] as num?)?.toInt() ?? 0,
+      categoryId: map['categoryId'] ?? '',
+      categoryName: map['categoryName'] ?? '',
     );
   }
 
@@ -145,6 +151,8 @@ class OrderItemEntity {
     OrderItemStatus? status,
     DateTime? createdAt,
     int? sentQuantity,
+    String? categoryId,
+    String? categoryName,
   }) {
     return OrderItemEntity(
       itemId: itemId ?? this.itemId,
@@ -159,6 +167,8 @@ class OrderItemEntity {
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       sentQuantity: sentQuantity ?? this.sentQuantity,
+      categoryId: categoryId ?? this.categoryId,
+      categoryName: categoryName ?? this.categoryName,
     );
   }
 
@@ -175,6 +185,8 @@ class OrderItemEntity {
     'status': status.name,
     'createdAt': createdAt,
     'sentQuantity': sentQuantity,
+    'categoryId': categoryId,
+    'categoryName': categoryName,
   };
 }
 

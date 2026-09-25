@@ -2,23 +2,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../config/theme.dart';
+import '../../../data/models/order_dto.dart';
 import '../../../data/models/table_dto.dart';
 import '../providers/table_provider.dart';
 
 class TableCard extends ConsumerWidget {
   final TableEntity table;
+  final OrderEntity? order;
   final VoidCallback onTap;
 
-  const TableCard({super.key, required this.table, required this.onTap});
+  const TableCard({super.key, required this.table, this.order, required this.onTap});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hasItems = table.hasItems;
+    final o = order;
+    final allSent = hasItems &&
+        o != null &&
+        o.items.isNotEmpty &&
+        o.items.every((i) => i.unsentQuantity == 0);
 
     return GestureDetector(
       onTap: onTap,
       onLongPress: hasItems ? null : () => _confirmDelete(context, ref),
-      child: AnimatedContainer(
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeInOut,
         decoration: BoxDecoration(
@@ -88,6 +98,24 @@ class TableCard extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+          if (allSent)
+            Positioned(
+              top: -6,
+              right: -6,
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: AppColors.green,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: const Icon(Icons.check_rounded,
+                    color: Colors.white, size: 15),
+              ),
+            ),
+        ],
       ),
     );
   }

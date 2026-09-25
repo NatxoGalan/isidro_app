@@ -11,6 +11,8 @@ class CartNotifier extends StateNotifier<CartState> {
   final TableRepository _tableRepository;
   String? _currentOrderId;
   StreamSubscription<OrderEntity?>? _orderSubscription;
+  String? _watchedOrderId;
+  int _resubAttempts = 0;
 
   CartNotifier(this._orderRepository, this._tableRepository) : super(const CartState());
 
@@ -96,21 +98,81 @@ class CartNotifier extends StateNotifier<CartState> {
   /// Abre una mesa: carga borrador existente desde Firestore o empieza vacío.
   /// Además se suscribe en vivo: lo que añada otro dispositivo aparece solo.
   Future<void> setTable(String? tableId, String? tableNumber, {String? existingOrderId}) async {
-    if (tableId == state.tableId) return;
-    await _orderSubscription?.cancel();
-    _orderSubscription = null;
+    if (tableId == state.tableId) {
+      ensureWatching();
+      return;
+    }
+    await _stopWatching();
 
     if (existingOrderId != null && existingOrderId.isNotEmpty) {
       _currentOrderId = existingOrderId;
       await _loadDraft(existingOrderId);
       state = state.copyWith(tableId: tableId, tableNumber: tableNumber);
-      _orderSubscription = _orderRepository
-          .watchOrder(existingOrderId)
-          .listen(_onRemoteOrder, onError: (_) {});
+      _startOrderWatch(existingOrderId);
     } else {
       _currentOrderId = null;
       state = CartState(tableId: tableId, tableNumber: tableNumber);
     }
+  }
+
+  /// (Re)inicia la escucha en vivo de la orden con reintento si falla.
+  void _startOrderWatch(String orderId) {
+    _orderSubscription?.cancel();
+    _watchedOrderId = orderId;
+    _resubAttempts = 0;
+    _orderSubscription = _orderRepository.watchOrder(orderId).listen(
+          _onRemoteOrder,
+          onError: (_) => _scheduleResubscribe(),
+          onDone: () => _scheduleResubscribe(),
+        );
+  }
+
+  void _scheduleResubscribe() {
+    _orderSubscription?.cancel();
+    _orderSubscription = null;
+    if (_watchedOrderId == null ||
+        _watchedOrderId != _currentOrderId ||
+        _resubAttempts >= 5) {
+      return;
+    }
+    final delay = Duration(seconds: 2 << _resubAttempts); // 2,4,8,16,32s
+    _resubAttempts++;
+    Future.delayed(delay, () {
+      if (_watchedOrderId != null &&
+          _watchedOrderId == _currentOrderId &&
+          _orderSubscription == null &&
+          mounted) {
+        _startOrderWatch(_watchedOrderId!);
+      }
+    });
+  }
+
+  /// Garantiza escucha activa (al reabrir la misma mesa o volver a la app).
+  void ensureWatching() {
+    final id = _currentOrderId;
+    if (id == null || id.isEmpty || _orderSubscription != null) return;
+    _resubAttempts = 0;
+    _startOrderWatch(id);
+  }
+
+  Future<void> _stopWatching() async {
+    await _orderSubscription?.cancel();
+    _orderSubscription = null;
+    _watchedOrderId = null;
+    _resubAttempts = 0;
+  }
+
+  /// Lectura fresca puntual (p. ej. antes de imprimir el delta).
+  Future<void> refreshFromServer() async {
+    final id = _currentOrderId;
+    if (id == null || id.isEmpty) return;
+    try {
+      final order = await _orderRepository
+          .watchOrder(id)
+          .first
+          .timeout(const Duration(seconds: 5));
+      if (order != null) _applyRemoteOrder(order);
+    } catch (_) {}
   }
 
   /// Carga un borrador desde Firestore (draft o pendiente de cocina).
@@ -225,8 +287,7 @@ class CartNotifier extends StateNotifier<CartState> {
 
   /// Cierra la mesa: marca como paid y libera
   Future<void> closeTable() async {
-    await _orderSubscription?.cancel();
-    _orderSubscription = null;
+    await _stopWatching();
     if (_currentOrderId != null) {
       try {
         await _orderRepository.updateOrder(_currentOrderId!, {
@@ -246,8 +307,7 @@ class CartNotifier extends StateNotifier<CartState> {
   }
 
   Future<void> clear() async {
-    await _orderSubscription?.cancel();
-    _orderSubscription = null;
+    await _stopWatching();
     _currentOrderId = null;
     state = const CartState();
   }

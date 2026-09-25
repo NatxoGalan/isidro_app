@@ -12,6 +12,10 @@ class OrderRepository {
     return _datasource.watchOrder(orderId);
   }
 
+  Stream<List<OrderEntity>> watchOpenOrders(String venueId) {
+    return _datasource.watchOpenOrders(venueId);
+  }
+
   Future<String> createOrder(OrderEntity order) async {
     return await _datasource.createOrder(order);
   }

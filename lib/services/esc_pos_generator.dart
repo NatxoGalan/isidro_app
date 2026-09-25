@@ -55,7 +55,8 @@ class EscPosGenerator {
     return s.substring(0, max);
   }
 
-  /// Genera ticket de cocina "Nuevo pedido" para una orden
+  /// Genera ticket de cocina "Nuevo pedido" para una orden.
+  /// [stationLabel] distingue el grupo (p. ej. 'BEBIDAS') en tickets separados.
   static List<int> generateKitchenTicket({
     required String orderId,
     required String tableNumber,
@@ -63,6 +64,7 @@ class EscPosGenerator {
     String? notes,
     String? kitchenNotes,
     String? waiterName,
+    String? stationLabel,
     required DateTime createdAt,
   }) {
     final bytes = <int>[];
@@ -72,6 +74,11 @@ class EscPosGenerator {
     // Título
     bytes.addAll(_centerAlign);
     bytes.addAll(_enc('Nuevo pedido\n'));
+    if (stationLabel != null && stationLabel.isNotEmpty) {
+      bytes.addAll(_boldOn);
+      bytes.addAll(_enc('===== $stationLabel =====\n'));
+      bytes.addAll(_boldOff);
+    }
     bytes.addAll(_enc('$_sep\n'));
 
     // Mesa en grande

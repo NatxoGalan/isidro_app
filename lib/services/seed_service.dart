@@ -7,6 +7,7 @@ class SeedService {
   static const Map<String, String> categorySlugs = {
     'Tapas': 'tapas',
     'Bocadillos': 'bocadillos',
+    'Medios Bocadillos': 'medios-bocadillos',
     'Bebidas': 'bebidas',
     'Varios': 'varios',
     'Cafetería': 'cafeteria',
@@ -20,6 +21,60 @@ class SeedService {
     if (!tablesExist) await _seedTables();
     if (!categoriesExist) await _seedCategories();
     if (!productsExist) await _seedProducts();
+    // Migración: categorías/productos nuevos sin borrar lo existente
+    await _ensureMediosBocadillos();
+  }
+
+  /// Crea la categoría Medios Bocadillos + ejemplos si no existen.
+  Future<void> _ensureMediosBocadillos() async {
+    try {
+      final catDoc = await _firestore
+          .collection(Constants.collectionCategories)
+          .doc('medios-bocadillos')
+          .get();
+      if (!catDoc.exists) {
+        await _firestore
+            .collection(Constants.collectionCategories)
+            .doc('medios-bocadillos')
+            .set({
+          'name': 'Medios Bocadillos',
+          'venueId': Constants.defaultVenueId,
+          'sortOrder': 2,
+          'imageUrl': null,
+          'status': 'active',
+        });
+      }
+      final existing = await _firestore
+          .collection(Constants.collectionProducts)
+          .where('venueId', isEqualTo: Constants.defaultVenueId)
+          .where('categoryId', isEqualTo: 'medios-bocadillos')
+          .limit(1)
+          .get();
+      if (existing.docs.isEmpty) {
+        final batch = _firestore.batch();
+        final medios = [
+          {'name': 'Medio de Jamón', 'basePrice': 4.5, 'sortOrder': 0, 'description': 'Medio bocadillo de jamón serrano'},
+          {'name': 'Medio Mixto', 'basePrice': 4.2, 'sortOrder': 1, 'description': 'Medio bocadillo de jamón y queso'},
+          {'name': 'Medio de Tortilla', 'basePrice': 4.0, 'sortOrder': 2, 'description': 'Medio bocadillo de tortilla de patata'},
+          {'name': 'Medio de Atún', 'basePrice': 4.0, 'sortOrder': 3, 'description': 'Medio bocadillo de atún con tomate'},
+          {'name': 'Medio de Queso', 'basePrice': 3.8, 'sortOrder': 4, 'description': 'Medio bocadillo de queso manchego'},
+        ];
+        for (final m in medios) {
+          final doc = _firestore.collection(Constants.collectionProducts).doc();
+          batch.set(doc, {
+            'name': m['name'],
+            'basePrice': m['basePrice'],
+            'categoryId': 'medios-bocadillos',
+            'venueId': Constants.defaultVenueId,
+            'isAvailable': true,
+            'sortOrder': m['sortOrder'],
+            'description': m['description'],
+            'modifiers': [],
+          });
+        }
+        await batch.commit();
+      }
+    } catch (_) {}
   }
 
   Future<bool> _collectionHasData(String collection) async {
@@ -54,9 +109,10 @@ class SeedService {
     final categories = [
       {'id': 'tapas', 'name': 'Tapas', 'venueId': Constants.defaultVenueId, 'sortOrder': 0, 'imageUrl': null, 'status': 'active'},
       {'id': 'bocadillos', 'name': 'Bocadillos', 'venueId': Constants.defaultVenueId, 'sortOrder': 1, 'imageUrl': null, 'status': 'active'},
-      {'id': 'bebidas', 'name': 'Bebidas', 'venueId': Constants.defaultVenueId, 'sortOrder': 2, 'imageUrl': null, 'status': 'active'},
-      {'id': 'varios', 'name': 'Varios', 'venueId': Constants.defaultVenueId, 'sortOrder': 3, 'imageUrl': null, 'status': 'active'},
-      {'id': 'cafeteria', 'name': 'Cafetería', 'venueId': Constants.defaultVenueId, 'sortOrder': 4, 'imageUrl': null, 'status': 'active'},
+      {'id': 'medios-bocadillos', 'name': 'Medios Bocadillos', 'venueId': Constants.defaultVenueId, 'sortOrder': 2, 'imageUrl': null, 'status': 'active'},
+      {'id': 'bebidas', 'name': 'Bebidas', 'venueId': Constants.defaultVenueId, 'sortOrder': 3, 'imageUrl': null, 'status': 'active'},
+      {'id': 'varios', 'name': 'Varios', 'venueId': Constants.defaultVenueId, 'sortOrder': 4, 'imageUrl': null, 'status': 'active'},
+      {'id': 'cafeteria', 'name': 'Cafetería', 'venueId': Constants.defaultVenueId, 'sortOrder': 5, 'imageUrl': null, 'status': 'active'},
     ];
 
     for (final cat in categories) {

@@ -45,6 +45,18 @@ class FirebaseFirestoreDatasource {
         .map((snapshot) => snapshot.exists ? OrderEntity.fromFirestore(snapshot) : null);
   }
 
+  /// Todas las órdenes abiertas (borrador + enviadas) del local.
+  Stream<List<OrderEntity>> watchOpenOrders(String venueId) {
+    return _firestore
+        .collection(Constants.collectionOrders)
+        .where('venueId', isEqualTo: venueId)
+        .where('status', whereIn: [Constants.orderDraft, Constants.orderPending])
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => OrderEntity.fromFirestore(doc))
+            .toList());
+  }
+
   Future<String> createOrder(OrderEntity order) async {
     final ref = await _firestore.collection(Constants.collectionOrders).add(order.toFirestore());
     return ref.id;
