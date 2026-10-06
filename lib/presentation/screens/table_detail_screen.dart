@@ -21,6 +21,7 @@ import '../providers/printer_provider.dart';
 import '../widgets/product_search_bar.dart';
 import '../widgets/category_chips.dart';
 import '../widgets/product_picker_card.dart';
+import '../widgets/modifiers_sheet.dart';
 
 class TableDetailScreen extends ConsumerStatefulWidget {
   final String tableId;
@@ -481,6 +482,15 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
                   return ProductPickerCard(
                     product: p,
                     onAdd: () {
+                      if (p.modifiers.isNotEmpty) {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          builder: (_) => ModifiersSheet(product: p),
+                        );
+                        setState(() => _showProductPicker = false);
+                        return;
+                      }
                       ref.read(cartProvider.notifier).addItem(OrderItemEntity(
                         itemId: 'item_${DateTime.now().millisecondsSinceEpoch}',
                         productId: p.id,

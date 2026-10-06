@@ -202,6 +202,12 @@ class ProductDialog extends ConsumerStatefulWidget {
   ConsumerState<ProductDialog> createState() => _ProductDialogState();
 }
 
+class _ExtraRow {
+  String name;
+  double price;
+  _ExtraRow({required this.name, required this.price});
+}
+
 class _ProductDialogState extends ConsumerState<ProductDialog> {
   final _formKey = GlobalKey<FormState>();
   late String _name;
@@ -209,6 +215,9 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
   late String _category;
   late String _description;
   bool _isAvailable = true;
+  late List<_ExtraRow> _extras;
+  String _newExtraName = '';
+  double _newExtraPrice = 0;
 
   static const Map<String, String> _fallbackSlugs = {
     'Tapas': 'tapas',
@@ -249,6 +258,16 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
     _category = _nameForSlug(cats, p?.categoryId);
     _description = p?.description ?? '';
     _isAvailable = p?.isAvailable ?? true;
+    _extras = [];
+    if (p != null) {
+      for (final m in p.modifiers) {
+        if (m.modifierId == 'extras') {
+          for (final o in m.options) {
+            _extras.add(_ExtraRow(name: o.name, price: o.priceDelta));
+          }
+        }
+      }
+    }
   }
 
   @override
@@ -340,6 +359,77 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 14),
+                      Text('Ingredientes extra',
+                          style: GoogleFonts.inter(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.label)),
+                      const SizedBox(height: 6),
+                      for (var i = 0; i < _extras.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                    '${_extras[i].name}  +${_extras[i].price.toStringAsFixed(2)}€',
+                                    style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        color: AppColors.label)),
+                              ),
+                              GestureDetector(
+                                onTap: () =>
+                                    setState(() => _extras.removeAt(i)),
+                                child: const Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 20,
+                                    color: AppColors.red),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: TextFormField(
+                              decoration: const InputDecoration(
+                                  labelText: 'Ingrediente'),
+                              onChanged: (v) => _newExtraName = v,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 2,
+                            child: TextFormField(
+                              decoration: const InputDecoration(
+                                  labelText: '€', prefixText: '€ '),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              onChanged: (v) =>
+                                  _newExtraPrice = double.tryParse(v) ?? 0,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_rounded,
+                                color: AppColors.blue),
+                            onPressed: () {
+                              final name = _newExtraName.trim();
+                              if (name.isEmpty || _newExtraPrice <= 0) {
+                                return;
+                              }
+                              setState(() {
+                                _extras.add(_ExtraRow(
+                                    name: name, price: _newExtraPrice));
+                                _newExtraName = '';
+                                _newExtraPrice = 0;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -380,20 +470,47 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
     );
   }
 
+  List<Map<String, dynamic>> _modifiersForSave() {
+    final mods = <Map<String, dynamic>>[];
+    final existing = widget.product?.modifiers ?? [];
+    for (final m in existing) {
+      if (m.modifierId != 'extras') mods.add(m.toMap());
+    }
+    if (_extras.isNotEmpty) {
+      mods.add({
+        'modifierId': 'extras',
+        'name': 'Extras',
+        'additionalPrice': 0.0,
+        'required': false,
+        'multi': true,
+        'options': [
+          for (var i = 0; i < _extras.length; i++)
+            {
+              'optionId': 'extra_$i',
+              'name': _extras[i].name,
+              'priceDelta': _extras[i].price,
+            },
+        ],
+      });
+    }
+    return mods;
+  }
+
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
 
     final cats = ref.read(categoriesProvider).valueOrNull;
     final slug = _slugForName(cats, _category);
     final repo = ref.read(productRepositoryProvider);
+    final mods = _modifiersForSave();
 
     if (widget.product != null) {
-      repo.updateProduct(widget.product!.id, {'name': _name, 'basePrice': _price, 'categoryId': slug, 'description': _description, 'isAvailable': _isAvailable});
+      repo.updateProduct(widget.product!.id, {'name': _name, 'basePrice': _price, 'categoryId': slug, 'description': _description, 'isAvailable': _isAvailable, 'modifiers': mods});
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Producto actualizado'), backgroundColor: AppColors.green),
       );
     } else {
-      final product = ProductEntity(id: '', categoryId: slug, venueId: Constants.defaultVenueId, name: _name, description: _description, basePrice: _price, isAvailable: _isAvailable);
+      final product = ProductEntity(id: '', categoryId: slug, venueId: Constants.defaultVenueId, name: _name, description: _description, basePrice: _price, isAvailable: _isAvailable, modifiers: mods.map((m) => ModifierDefinition.fromMap(m)).toList());
       repo.createProduct(product);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Producto creado'), backgroundColor: AppColors.green),

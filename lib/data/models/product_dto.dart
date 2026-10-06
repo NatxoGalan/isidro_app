@@ -71,6 +71,7 @@ class ModifierDefinition {
   final String name;
   final double additionalPrice;
   final bool required;
+  final bool multi;
   final List<ModifierOption> options;
 
   const ModifierDefinition({
@@ -78,6 +79,7 @@ class ModifierDefinition {
     required this.name,
     this.additionalPrice = 0.0,
     this.required = false,
+    this.multi = false,
     this.options = const [],
   });
 
@@ -87,6 +89,7 @@ class ModifierDefinition {
       name: map['name'] ?? '',
       additionalPrice: (map['additionalPrice'] as num?)?.toDouble() ?? 0.0,
       required: map['required'] ?? false,
+      multi: map['multi'] ?? false,
       options: (map['options'] as List?)
           ?.map((o) => ModifierOption.fromMap(o as Map<String, dynamic>))
           .toList() ?? [],
@@ -98,6 +101,7 @@ class ModifierDefinition {
     'name': name,
     'additionalPrice': additionalPrice,
     'required': required,
+    'multi': multi,
     'options': options.map((o) => o.toMap()).toList(),
   };
 }

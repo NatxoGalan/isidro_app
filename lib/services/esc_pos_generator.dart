@@ -13,6 +13,11 @@ class EscPosGenerator {
   static const List<int> _doubleSize = [0x1B, 0x21, 0x30]; // ESC ! 48 - Double height/width
   static const List<int> _doubleHeight = [0x1B, 0x21, 0x10]; // ESC ! 16 - Double height
   static const List<int> _normalSize = [0x1B, 0x21, 0x00]; // ESC ! 0 - Normal size
+  static const List<int> _upsideDownOff = [0x1B, 0x7B, 0x00]; // ESC { 0 - No invertido
+  static const List<int> _sizeNormal = [0x1D, 0x21, 0x00]; // GS ! 0 - Tamaño normal
+
+  /// GS ! n - tamaño libre: ancho 1-8, alto 1-8 (misma anchura = no descuadra)
+  static List<int> _gsSize(int w, int h) => [0x1D, 0x21, ((w - 1) << 4) | (h - 1)];
   static const List<int> _centerAlign = [0x1B, 0x61, 1]; // ESC a 1 - Center align
   static const List<int> _leftAlign = [0x1B, 0x61, 0]; // ESC a 0 - Left align
 
@@ -20,11 +25,26 @@ class EscPosGenerator {
   static const int _cols = 42;
   static String get _sep => ''.padRight(_cols, '-');
 
+  /// Controles bidireccionales invisibles (pe. pegados de WhatsApp) que
+  /// algunas impresoras obedecen e invierten el texto posterior.
+  static const Set<int> _bidiControls = {
+    0x200E, 0x200F, // LRM, RLM
+    0x202A, 0x202B, 0x202C, 0x202D, 0x202E, // LRE, RLE, PDF, LRO, RLO
+    0x2066, 0x2067, 0x2068, 0x2069, // LRI, RLI, FSI, PDI
+    0x061C, // ALM
+  };
+
   /// Codifica texto en latin1 (tildes/ñ de la codepage típica ESC/POS).
-  /// Los caracteres fuera de latin1 se sustituyen por '?'.
+  /// Elimina controles invisibles/bidi y sustituye lo no-latin1 por '?'.
   static List<int> _enc(String s) {
     final out = <int>[];
     for (final r in s.runes) {
+      if (r == 0x0A || r == 0x09) {
+        out.add(r);
+        continue;
+      }
+      if (r < 0x20 || (r >= 0x7F && r < 0xA0)) continue; // C0/C1/DEL
+      if (_bidiControls.contains(r)) continue;
       out.add(r < 256 ? r : 0x3F);
     }
     return out;
@@ -70,6 +90,7 @@ class EscPosGenerator {
     final bytes = <int>[];
 
     bytes.addAll(_init);
+    bytes.addAll(_upsideDownOff);
 
     // Título
     bytes.addAll(_centerAlign);
@@ -101,9 +122,9 @@ class EscPosGenerator {
     for (final item in items) {
       totalPlatos += item.quantity;
       bytes.addAll(_boldOn);
-      bytes.addAll(_doubleHeight);
+      bytes.addAll(_gsSize(1, 3));
       bytes.addAll(_enc('${item.quantity}x ${item.name}\n'));
-      bytes.addAll(_normalSize);
+      bytes.addAll(_sizeNormal);
       bytes.addAll(_boldOff);
 
       for (final mod in item.modifiers) {
@@ -113,7 +134,9 @@ class EscPosGenerator {
       // Nota del producto (si tiene)
       if (item.notes.isNotEmpty) {
         bytes.addAll(_boldOn);
+        bytes.addAll(_gsSize(1, 2));
         bytes.addAll(_enc('  >> ${item.notes}\n'));
+        bytes.addAll(_sizeNormal);
         bytes.addAll(_boldOff);
       }
 
@@ -157,6 +180,7 @@ class EscPosGenerator {
     final bytes = <int>[];
     
     bytes.addAll(_init);
+    bytes.addAll(_upsideDownOff);
     
     // Header
     bytes.addAll(_centerAlign);
@@ -221,6 +245,7 @@ class EscPosGenerator {
     final bytes = <int>[];
 
     bytes.addAll(_init);
+    bytes.addAll(_upsideDownOff);
 
     // Cabecera
     bytes.addAll(_centerAlign);
@@ -254,26 +279,33 @@ class EscPosGenerator {
     bytes.addAll(_enc('$header\n'));
     bytes.addAll(_boldOff);
 
-    // Items en doble altura (mismo ancho: no se descuadran columnas)
+    // Items en triple altura (mismo ancho: no se descuadran columnas)
     for (final item in items) {
       final itemTotal = item.unitPrice * item.quantity;
       final qty = '${item.quantity} x ';
       final name = _truncate(item.name, nameW);
       final line = '${qty.padRight(qtyW)}${name.padRight(nameW)}'
           '${_price(item.unitPrice).padLeft(pvpW)}${_price(itemTotal).padLeft(impW)}';
-      bytes.addAll(_doubleHeight);
+      bytes.addAll(_gsSize(1, 3));
       bytes.addAll(_enc('$line\n'));
-      bytes.addAll(_normalSize);
+      bytes.addAll(_sizeNormal);
+      // Extras como sub-líneas con su importe
+      for (final mod in item.modifiers) {
+        final modTotal = mod.price * item.quantity;
+        final modLine = '  + ${_truncate(mod.name, _cols - 4 - impW)}'
+            '${_price(modTotal).padLeft(impW)}';
+        bytes.addAll(_enc('$modLine\n'));
+      }
     }
 
     bytes.addAll(_enc('$_sep\n'));
 
-    // Total en doble tamaño (21 columnas a doble ancho)
+    // Total en grande: ancho 2x, alto 3x (21 columnas a doble ancho)
     final totalStr = _price(total);
     bytes.addAll(_boldOn);
-    bytes.addAll(_doubleSize);
+    bytes.addAll(_gsSize(2, 3));
     bytes.addAll(_enc('${'Total'.padRight(21 - totalStr.length)}$totalStr\n'));
-    bytes.addAll(_normalSize);
+    bytes.addAll(_sizeNormal);
     bytes.addAll(_boldOff);
 
     if (paymentMethod != null && paymentMethod.isNotEmpty) {
@@ -283,9 +315,9 @@ class EscPosGenerator {
     bytes.addAll(_enc('$_sep\n'));
     bytes.addAll(_centerAlign);
     bytes.addAll(_boldOn);
-    bytes.addAll(_doubleHeight);
+    bytes.addAll(_gsSize(1, 3));
     bytes.addAll(_enc('Gracias por su visita\n'));
-    bytes.addAll(_normalSize);
+    bytes.addAll(_sizeNormal);
     bytes.addAll(_boldOff);
 
     bytes.addAll(_feedLines);
@@ -302,6 +334,7 @@ class EscPosGenerator {
     final bytes = <int>[];
 
     bytes.addAll(_init);
+    bytes.addAll(_upsideDownOff);
     bytes.addAll(_centerAlign);
     bytes.addAll(_boldOn);
     bytes.addAll(_doubleHeight);

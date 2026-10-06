@@ -23,6 +23,52 @@ class SeedService {
     if (!productsExist) await _seedProducts();
     // Migración: categorías/productos nuevos sin borrar lo existente
     await _ensureMediosBocadillos();
+    await _ensureJamonExtras();
+  }
+
+  /// Añade el grupo Extras (Con queso +1,50€) al Bocadillo de Jamón si no tiene.
+  Future<void> _ensureJamonExtras() async {
+    try {
+      final snap = await _firestore
+          .collection(Constants.collectionProducts)
+          .where('venueId', isEqualTo: Constants.defaultVenueId)
+          .where('categoryId', isEqualTo: 'bocadillos')
+          .get();
+      final batch = _firestore.batch();
+      var changed = false;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        if ((data['name'] as String? ?? '').toLowerCase().contains('jamón') ||
+            (data['name'] as String? ?? '').toLowerCase().contains('jamon')) {
+          final mods = (data['modifiers'] as List?) ?? [];
+          final hasExtras = mods.any((m) =>
+              (m as Map<String, dynamic>)['modifierId'] == 'extras');
+          if (!hasExtras) {
+            batch.update(doc.reference, {
+              'modifiers': [
+                ...mods,
+                {
+                  'modifierId': 'extras',
+                  'name': 'Extras',
+                  'additionalPrice': 0.0,
+                  'required': false,
+                  'multi': true,
+                  'options': [
+                    {
+                      'optionId': 'extra_queso',
+                      'name': 'Con queso',
+                      'priceDelta': 1.5,
+                    },
+                  ],
+                },
+              ],
+            });
+            changed = true;
+          }
+        }
+      }
+      if (changed) await batch.commit();
+    } catch (_) {}
   }
 
   /// Crea la categoría Medios Bocadillos + ejemplos si no existen.
