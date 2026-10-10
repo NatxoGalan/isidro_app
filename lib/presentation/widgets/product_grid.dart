@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/models/product_dto.dart';
 import '../../../data/models/order_dto.dart';
+import '../../../core/utils/constants.dart';
 import '../providers/cart_provider.dart';
 import '../providers/product_provider.dart';
 import 'modifiers_sheet.dart';
@@ -89,7 +90,9 @@ class _ProductGridState extends ConsumerState<ProductGrid> {
   }
 
   void _addToCart(ProductEntity product) {
-    if (product.modifiers.isNotEmpty) {
+    final hasSharedIngredients =
+        Constants.ingredientsCategoryIds.contains(product.categoryId);
+    if (product.modifiers.isNotEmpty || hasSharedIngredients) {
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,

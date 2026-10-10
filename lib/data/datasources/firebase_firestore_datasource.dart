@@ -4,6 +4,7 @@ import '../models/table_dto.dart';
 import '../models/order_dto.dart';
 import '../models/product_dto.dart';
 import '../models/category_dto.dart';
+import '../models/ingredient_dto.dart';
 import '../models/printer_dto.dart';
 import '../models/print_job_dto.dart';
 
@@ -178,6 +179,27 @@ class FirebaseFirestoreDatasource {
 
   Future<void> deleteProduct(String productId) async {
     await _firestore.collection(Constants.collectionProducts).doc(productId).delete();
+  }
+
+  /// Ingredientes extra compartidos, guardados en el documento del local.
+  Stream<List<IngredientEntity>> watchIngredients(String venueId) {
+    return _firestore
+        .collection(Constants.collectionVenues)
+        .doc(venueId)
+        .snapshots()
+        .map((snapshot) {
+      final list = snapshot.data()?['ingredients'] as List?;
+      return (list ?? [])
+          .map((e) => IngredientEntity.fromMap(e as Map<String, dynamic>))
+          .toList();
+    });
+  }
+
+  Future<void> saveIngredients(
+      String venueId, List<IngredientEntity> ingredients) async {
+    await _firestore.collection(Constants.collectionVenues).doc(venueId).set({
+      'ingredients': ingredients.map((e) => e.toMap()).toList(),
+    }, SetOptions(merge: true));
   }
 
   Future<void> deleteTable(String tableId) async {

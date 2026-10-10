@@ -5,6 +5,7 @@ import '../../config/theme.dart';
 import '../../core/utils/constants.dart';
 import '../../data/models/product_dto.dart';
 import '../../data/models/category_dto.dart';
+import '../../data/models/ingredient_dto.dart';
 import '../providers/auth_provider.dart';
 import '../providers/product_provider.dart';
 import '../widgets/product_management_tile.dart';
@@ -66,6 +67,11 @@ class _MenuManagementScreenState extends ConsumerState<MenuManagementScreen> {
                     const SizedBox(width: 12),
                     Text('Gestión de Carta', style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.label)),
                     const Spacer(),
+                    GestureDetector(
+                      onTap: _showIngredientsDialog,
+                      child: Container(width: 36, height: 36, decoration: BoxDecoration(color: AppColors.gray5, borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.egg_alt_outlined, color: AppColors.blue, size: 20)),
+                    ),
+                    const SizedBox(width: 8),
                     GestureDetector(
                       onTap: _showProductDialog,
                       child: Container(width: 36, height: 36, decoration: BoxDecoration(color: AppColors.blue, borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.add_rounded, color: Colors.white, size: 22)),
@@ -170,6 +176,10 @@ class _MenuManagementScreenState extends ConsumerState<MenuManagementScreen> {
     showDialog(context: context, builder: (_) => ProductDialog(product: product));
   }
 
+  void _showIngredientsDialog() {
+    showDialog(context: context, builder: (_) => const IngredientsDialog());
+  }
+
   void _deleteProduct(ProductEntity product) {
     showDialog(
       context: context,
@@ -194,18 +204,200 @@ class _MenuManagementScreenState extends ConsumerState<MenuManagementScreen> {
   }
 }
 
+/// Diálogo para gestionar la lista global de ingredientes extra
+/// (bocadillos y medios bocadillos).
+class IngredientsDialog extends ConsumerStatefulWidget {
+  const IngredientsDialog({super.key});
+
+  @override
+  ConsumerState<IngredientsDialog> createState() => _IngredientsDialogState();
+}
+
+class _IngredientsDialogState extends ConsumerState<IngredientsDialog> {
+  List<IngredientEntity>? _items;
+  final _nameController = TextEditingController();
+  final _priceController = TextEditingController();
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _priceController.dispose();
+    super.dispose();
+  }
+
+  void _add() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+    final price =
+        double.tryParse(_priceController.text.replaceAll(',', '.')) ?? 0;
+    setState(() {
+      _items = [
+        ...?_items,
+        IngredientEntity(
+          id: 'ing_${DateTime.now().millisecondsSinceEpoch}',
+          name: name,
+          price: price,
+        ),
+      ];
+      _nameController.clear();
+      _priceController.clear();
+    });
+  }
+
+  Future<void> _save() async {
+    await ref
+        .read(productRepositoryProvider)
+        .saveIngredients(Constants.defaultVenueId, _items ?? []);
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final async = ref.watch(ingredientsProvider);
+    if (_items == null && async.hasValue) {
+      _items = List.of(async.valueOrNull ?? const []);
+    }
+    final items = _items ?? const <IngredientEntity>[];
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text('Ingredientes extra',
+                  style: GoogleFonts.inter(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.label)),
+            ),
+            const Divider(height: 0.5, color: AppColors.separator),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        'Se aplican a Bocadillos y Medios Bocadillos.',
+                        style: GoogleFonts.inter(
+                            fontSize: 13, color: AppColors.secondaryLabel)),
+                    const SizedBox(height: 12),
+                    for (var i = 0; i < items.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                  '${items[i].name}  +${items[i].price.toStringAsFixed(2)}€',
+                                  style: GoogleFonts.inter(
+                                      fontSize: 14, color: AppColors.label)),
+                            ),
+                            GestureDetector(
+                              onTap: () => setState(() {
+                                final list = List.of(items)..removeAt(i);
+                                _items = list;
+                              }),
+                              child: const Icon(Icons.delete_outline_rounded,
+                                  size: 20, color: AppColors.red),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: TextFormField(
+                            controller: _nameController,
+                            decoration: const InputDecoration(
+                                labelText: 'Ingrediente'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          flex: 2,
+                          child: TextFormField(
+                            controller: _priceController,
+                            decoration: const InputDecoration(
+                                labelText: '€', prefixText: '€ '),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                                    decimal: true),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_rounded,
+                              color: AppColors.blue),
+                          onPressed: _add,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 0.5, color: AppColors.separator),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.secondaryLabel,
+                            side: const BorderSide(
+                                color: AppColors.separator, width: 0.5),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14))),
+                        child: Text('Cancelar',
+                            style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton(
+                        onPressed: _save,
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.blue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14))),
+                        child: Text('Guardar',
+                            style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class ProductDialog extends ConsumerStatefulWidget {
   final ProductEntity? product;
   const ProductDialog({super.key, this.product});
 
   @override
   ConsumerState<ProductDialog> createState() => _ProductDialogState();
-}
-
-class _ExtraRow {
-  String name;
-  double price;
-  _ExtraRow({required this.name, required this.price});
 }
 
 class _ProductDialogState extends ConsumerState<ProductDialog> {
@@ -215,9 +407,6 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
   late String _category;
   late String _description;
   bool _isAvailable = true;
-  late List<_ExtraRow> _extras;
-  String _newExtraName = '';
-  double _newExtraPrice = 0;
 
   static const Map<String, String> _fallbackSlugs = {
     'Tapas': 'tapas',
@@ -258,16 +447,6 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
     _category = _nameForSlug(cats, p?.categoryId);
     _description = p?.description ?? '';
     _isAvailable = p?.isAvailable ?? true;
-    _extras = [];
-    if (p != null) {
-      for (final m in p.modifiers) {
-        if (m.modifierId == 'extras') {
-          for (final o in m.options) {
-            _extras.add(_ExtraRow(name: o.name, price: o.priceDelta));
-          }
-        }
-      }
-    }
   }
 
   @override
@@ -360,76 +539,6 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
                         ],
                       ),
                       const SizedBox(height: 14),
-                      Text('Ingredientes extra',
-                          style: GoogleFonts.inter(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.label)),
-                      const SizedBox(height: 6),
-                      for (var i = 0; i < _extras.length; i++)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                    '${_extras[i].name}  +${_extras[i].price.toStringAsFixed(2)}€',
-                                    style: GoogleFonts.inter(
-                                        fontSize: 14,
-                                        color: AppColors.label)),
-                              ),
-                              GestureDetector(
-                                onTap: () =>
-                                    setState(() => _extras.removeAt(i)),
-                                child: const Icon(
-                                    Icons.delete_outline_rounded,
-                                    size: 20,
-                                    color: AppColors.red),
-                              ),
-                            ],
-                          ),
-                        ),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: TextFormField(
-                              decoration: const InputDecoration(
-                                  labelText: 'Ingrediente'),
-                              onChanged: (v) => _newExtraName = v,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            flex: 2,
-                            child: TextFormField(
-                              decoration: const InputDecoration(
-                                  labelText: '€', prefixText: '€ '),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              onChanged: (v) =>
-                                  _newExtraPrice = double.tryParse(v) ?? 0,
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_rounded,
-                                color: AppColors.blue),
-                            onPressed: () {
-                              final name = _newExtraName.trim();
-                              if (name.isEmpty || _newExtraPrice <= 0) {
-                                return;
-                              }
-                              setState(() {
-                                _extras.add(_ExtraRow(
-                                    name: name, price: _newExtraPrice));
-                                _newExtraName = '';
-                                _newExtraPrice = 0;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
@@ -474,24 +583,8 @@ class _ProductDialogState extends ConsumerState<ProductDialog> {
     final mods = <Map<String, dynamic>>[];
     final existing = widget.product?.modifiers ?? [];
     for (final m in existing) {
+      // Los "extras" ahora son globales (ver IngredientesDialog).
       if (m.modifierId != 'extras') mods.add(m.toMap());
-    }
-    if (_extras.isNotEmpty) {
-      mods.add({
-        'modifierId': 'extras',
-        'name': 'Extras',
-        'additionalPrice': 0.0,
-        'required': false,
-        'multi': true,
-        'options': [
-          for (var i = 0; i < _extras.length; i++)
-            {
-              'optionId': 'extra_$i',
-              'name': _extras[i].name,
-              'priceDelta': _extras[i].price,
-            },
-        ],
-      });
     }
     return mods;
   }

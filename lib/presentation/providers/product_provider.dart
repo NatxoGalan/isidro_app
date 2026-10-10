@@ -1,11 +1,19 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/product_dto.dart';
 import '../../data/models/category_dto.dart';
+import '../../data/models/ingredient_dto.dart';
 import '../../core/utils/constants.dart';
 import 'auth_provider.dart';
 
 final productsProvider = StreamProvider<List<ProductEntity>>((ref) {
   return ref.read(productRepositoryProvider).watchProducts(Constants.defaultVenueId);
+});
+
+/// Ingredientes extra compartidos (bocadillos y medios bocadillos).
+final ingredientsProvider = StreamProvider<List<IngredientEntity>>((ref) {
+  return ref
+      .read(productRepositoryProvider)
+      .watchIngredients(Constants.defaultVenueId);
 });
 
 final allProductsProvider = StreamProvider<List<ProductEntity>>((ref) {

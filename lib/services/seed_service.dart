@@ -24,6 +24,54 @@ class SeedService {
     // Migración: categorías/productos nuevos sin borrar lo existente
     await _ensureMediosBocadillos();
     await _ensureJamonExtras();
+    await _ensureGlobalIngredients();
+  }
+
+  /// Crea la lista global de ingredientes (bocadillos/medios) si aún no existe.
+  /// Migra los extras definidos por producto para no perderlos.
+  Future<void> _ensureGlobalIngredients() async {
+    try {
+      final venueRef = _firestore
+          .collection(Constants.collectionVenues)
+          .doc(Constants.defaultVenueId);
+      final venueSnap = await venueRef.get();
+      final existing = venueSnap.data()?['ingredients'];
+      if (existing is List && existing.isNotEmpty) return;
+      if (venueSnap.data()?.containsKey('ingredients') == true) return;
+
+      // Recolecta extras de los productos (dedup por nombre).
+      final snap = await _firestore
+          .collection(Constants.collectionProducts)
+          .where('venueId', isEqualTo: Constants.defaultVenueId)
+          .get();
+      final seen = <String>{};
+      final ingredients = <Map<String, dynamic>>[];
+      for (final doc in snap.docs) {
+        final mods = (doc.data()['modifiers'] as List?) ?? [];
+        for (final m in mods) {
+          final map = m as Map<String, dynamic>;
+          if (map['modifierId'] != 'extras') continue;
+          for (final o in (map['options'] as List?) ?? []) {
+            final opt = o as Map<String, dynamic>;
+            final name = (opt['name'] as String? ?? '').trim();
+            if (name.isEmpty) continue;
+            final key = name.toLowerCase();
+            if (seen.add(key)) {
+              ingredients.add({
+                'id': 'ing_${seen.length}',
+                'name': name,
+                'price': (opt['priceDelta'] as num?)?.toDouble() ?? 0.0,
+              });
+            }
+          }
+        }
+      }
+
+      if (ingredients.isEmpty) {
+        ingredients.add({'id': 'ing_1', 'name': 'Con queso', 'price': 1.5});
+      }
+      await venueRef.set({'ingredients': ingredients}, SetOptions(merge: true));
+    } catch (_) {}
   }
 
   /// Añade el grupo Extras (Con queso +1,50€) al Bocadillo de Jamón si no tiene.

@@ -1,6 +1,6 @@
 class Constants {
   static const String appName = 'LaSede';
-  static const String appVersion = '1.0.3';
+  static const String appVersion = '1.1.2';
   static const String collectionVenues = 'venues';
   static const String collectionZones = 'zones';
   static const String collectionTables = 'tables';
@@ -34,6 +34,11 @@ class Constants {
   }
   /// Categorías que salen en ticket separado de bebidas (pero a Cocina).
   static const List<String> drinksCategoryIds = ['bebidas', 'varios', 'cafeteria'];
+  /// Categorías que comparten la lista global de ingredientes extra.
+  static const List<String> ingredientsCategoryIds = [
+    'bocadillos',
+    'medios-bocadillos',
+  ];
   static const String methodCard = 'card';
   static const String methodCash = 'cash';
   static const String methodCashNoChange = 'cash_no_change';

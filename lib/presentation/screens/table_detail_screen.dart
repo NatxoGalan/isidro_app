@@ -14,6 +14,7 @@ import '../../data/models/printer_dto.dart';
 import '../../services/esc_pos_generator.dart';
 import '../../services/printer_service.dart';
 import '../../services/print_station.dart';
+import '../../services/ticket_splitter.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/product_provider.dart';
@@ -55,10 +56,6 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
       ref.read(cartProvider.notifier).ensureWatching();
     }
   }
-
-  /// true si el item es de bebidas/varios/cafetería (ticket separado).
-  bool _isDrinks(OrderItemEntity i) =>
-      Constants.drinksCategoryIds.contains(i.categoryId);
 
   /// Slug (id) de la categoría seleccionada, resuelto desde Firestore.
   String _slugFor(List<CategoryEntity>? categories, String name) {
@@ -251,32 +248,7 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
           ),
         ),
         // Notes
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: TextField(
-            controller: TextEditingController(text: cart.kitchenNotes),
-            onChanged: (v) => ref.read(cartProvider.notifier).setKitchenNotes(v),
-            maxLines: 2,
-            style: GoogleFonts.inter(fontSize: 14, color: AppColors.label),
-            decoration: InputDecoration(
-              hintText: 'Notas generales...',
-              hintStyle: GoogleFonts.inter(color: AppColors.gray2, fontSize: 14),
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.separator, width: 0.5),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.separator, width: 0.5),
-              ),
-              prefixIcon: const Icon(Icons.note_alt_outlined, size: 18, color: AppColors.gray2),
-              filled: true,
-              fillColor: Colors.white,
-            ),
-          ),
-        ),
+        _KitchenNotesField(text: cart.kitchenNotes),
         // Total
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -482,7 +454,9 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
                   return ProductPickerCard(
                     product: p,
                     onAdd: () {
-                      if (p.modifiers.isNotEmpty) {
+                      final hasSharedIngredients =
+                          Constants.ingredientsCategoryIds.contains(p.categoryId);
+                      if (p.modifiers.isNotEmpty || hasSharedIngredients) {
                         showModalBottomSheet(
                           context: context,
                           isScrollControlled: true,
@@ -551,9 +525,10 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
     final now = DateTime.now();
 
     // Partir en grupos: comida y bebidas salen en tickets separados
-    // (ambos a las impresoras de Cocina) para no mezclar.
-    final food = deltas.where((i) => !_isDrinks(i)).toList();
-    final drinks = deltas.where(_isDrinks).toList();
+    // (ambos a las impresoras de Barra) para no mezclar.
+    final split = splitFoodAndDrinks(deltas);
+    final food = split.food;
+    final drinks = split.drinks;
 
     List<OrderItemData> toTicketData(List<OrderItemEntity> group) {
       return group
@@ -649,8 +624,9 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
 
     // 1) Intento directo (instantáneo si este móvil tiene WiFi)
     final allPrinters = ref.read(printersProvider).value ?? [];
+    // Ambos tiquets (comida y bebida) van a las impresoras con espacio "Barra".
     final targets =
-        printersForWorkspace(allPrinters, PrinterWorkspace.kitchen);
+        printersForWorkspace(allPrinters, PrinterWorkspace.bar);
 
     var directOk = 0;
     var targetCount = 0;
@@ -671,7 +647,7 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
                   printerId: p.id,
                   printerName:
                       t.label.isNotEmpty ? '${p.name} (${t.label})' : p.name,
-                  workspace: PrinterWorkspace.kitchen,
+                  workspace: PrinterWorkspace.bar,
                   type: PrintJobType.kitchen,
                   tableNumber: tableNumber,
                   escPosHex: t.hex,
@@ -688,8 +664,8 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
                 venueId: Constants.defaultVenueId,
                 printerId: '',
                 printerName:
-                    t.label.isNotEmpty ? 'Cocina (${t.label})' : 'Cocina',
-                workspace: PrinterWorkspace.kitchen,
+                    t.label.isNotEmpty ? 'Barra (${t.label})' : 'Barra',
+                workspace: PrinterWorkspace.bar,
                 type: PrintJobType.kitchen,
                 tableNumber: tableNumber,
                 escPosHex: t.hex,
@@ -705,7 +681,7 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
     await notifier.sendToKitchen();
 
     final groupWord =
-        groups.map((g) => g.label.isNotEmpty ? g.label : 'cocina').join(' + ');
+        groups.map((g) => g.label.isNotEmpty ? g.label : 'barra').join(' + ');
     String message;
     Color bg;
     if (directOk == targetCount && targetCount > 0) {
@@ -933,13 +909,112 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
   }
 }
 
+// ── Kitchen notes field (controlador persistente) ─────────────────────
+class _KitchenNotesField extends ConsumerStatefulWidget {
+  final String text;
+  const _KitchenNotesField({required this.text});
+
+  @override
+  ConsumerState<_KitchenNotesField> createState() => _KitchenNotesFieldState();
+}
+
+class _KitchenNotesFieldState extends ConsumerState<_KitchenNotesField> {
+  late final TextEditingController _controller;
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.text);
+  }
+
+  @override
+  void didUpdateWidget(covariant _KitchenNotesField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_focus.hasFocus && _controller.text != widget.text) {
+      _controller.text = widget.text;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: TextField(
+        controller: _controller,
+        focusNode: _focus,
+        onChanged: (v) => ref.read(cartProvider.notifier).setKitchenNotes(v),
+        maxLines: 2,
+        style: GoogleFonts.inter(fontSize: 14, color: AppColors.label),
+        decoration: InputDecoration(
+          hintText: 'Notas generales...',
+          hintStyle: GoogleFonts.inter(color: AppColors.gray2, fontSize: 14),
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: AppColors.separator, width: 0.5),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: AppColors.separator, width: 0.5),
+          ),
+          prefixIcon: const Icon(Icons.note_alt_outlined, size: 18, color: AppColors.gray2),
+          filled: true,
+          fillColor: Colors.white,
+        ),
+      ),
+    );
+  }
+}
+
 // ── Cart Item Card ───────────────────────────────────────────────────
-class _CartItemCard extends ConsumerWidget {
+class _CartItemCard extends ConsumerStatefulWidget {
   final OrderItemEntity item;
   const _CartItemCard({required this.item});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_CartItemCard> createState() => _CartItemCardState();
+}
+
+class _CartItemCardState extends ConsumerState<_CartItemCard> {
+  late final TextEditingController _notesController;
+  final FocusNode _notesFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _notesController = TextEditingController(text: widget.item.notes);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CartItemCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Solo sincroniza desde fuera si el usuario no está escribiendo,
+    // para no mover el cursor ni invertir el texto.
+    if (!_notesFocus.hasFocus &&
+        _notesController.text != widget.item.notes) {
+      _notesController.text = widget.item.notes;
+    }
+  }
+
+  @override
+  void dispose() {
+    _notesController.dispose();
+    _notesFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
     final lineTotal = item.unitPrice * item.quantity;
 
     return Container(
@@ -1003,7 +1078,8 @@ class _CartItemCard extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: TextField(
-                    controller: TextEditingController(text: item.notes),
+                    controller: _notesController,
+                    focusNode: _notesFocus,
                     onChanged: (v) => ref.read(cartProvider.notifier).updateItemNotes(item.itemId, v),
                     style: GoogleFonts.inter(fontSize: 12, color: AppColors.label),
                     decoration: InputDecoration(

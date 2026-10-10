@@ -9,7 +9,7 @@ import '../providers/cart_provider.dart';
 import '../providers/printer_provider.dart';
 import 'payment_sheet.dart';
 
-class OrderSheet extends ConsumerWidget {
+class OrderSheet extends ConsumerStatefulWidget {
   final List<OrderItemEntity> items;
   final double subtotal;
   final double total;
@@ -28,7 +28,40 @@ class OrderSheet extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OrderSheet> createState() => _OrderSheetState();
+}
+
+class _OrderSheetState extends ConsumerState<OrderSheet> {
+  late final TextEditingController _notesController;
+  final FocusNode _notesFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _notesController = TextEditingController(text: widget.notes);
+  }
+
+  @override
+  void didUpdateWidget(covariant OrderSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_notesFocus.hasFocus && _notesController.text != widget.notes) {
+      _notesController.text = widget.notes;
+    }
+  }
+
+  @override
+  void dispose() {
+    _notesController.dispose();
+    _notesFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.items;
+    final subtotal = widget.subtotal;
+    final total = widget.total;
+    final onNotesChanged = widget.onNotesChanged;
     if (items.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(20),
@@ -79,7 +112,8 @@ class OrderSheet extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: TextField(
-              controller: TextEditingController(text: notes),
+              controller: _notesController,
+              focusNode: _notesFocus,
               onChanged: onNotesChanged,
               maxLines: 2,
               decoration: InputDecoration(
@@ -148,20 +182,20 @@ class OrderSheet extends ConsumerWidget {
 
   void _sendToKitchen(BuildContext context, WidgetRef ref) async {
     final cart = ref.read(cartProvider);
-    final tableNum = tableNumber ?? 'Mesa';
+    final tableNum = widget.tableNumber ?? 'Mesa';
 
     // 1. Actualizar borrador a pending en Firestore
     await ref.read(cartProvider.notifier).sendToKitchen();
 
     // 2. Generar ticket ESC/POS
-    final itemNotesList = items
+    final itemNotesList = widget.items
         .where((i) => i.notes.isNotEmpty)
         .map((i) => '${i.productName}: ${i.notes}')
         .toList();
     final allItemNotes = itemNotesList.join('\n');
     
     final combinedNotes = [
-      if (notes.isNotEmpty) notes,
+      if (widget.notes.isNotEmpty) widget.notes,
       if (cart.kitchenNotes.isNotEmpty) cart.kitchenNotes,
       if (allItemNotes.isNotEmpty) '--- Notas por plato ---\n$allItemNotes',
     ].join('\n');
@@ -169,7 +203,7 @@ class OrderSheet extends ConsumerWidget {
     final escPosBytes = EscPosGenerator.generateKitchenTicket(
       orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'draft',
       tableNumber: tableNum,
-      items: items.map((i) => i.toOrderItemData()).toList(),
+      items: widget.items.map((i) => i.toOrderItemData()).toList(),
       notes: combinedNotes.isNotEmpty ? combinedNotes : null,
       kitchenNotes: null,
       createdAt: DateTime.now(),
@@ -177,7 +211,7 @@ class OrderSheet extends ConsumerWidget {
     
     final escPosHex = EscPosGenerator.bytesToHex(escPosBytes);
     
-    final printItems = items.map((i) => PrintItemData(
+    final printItems = widget.items.map((i) => PrintItemData(
       productId: i.productId,
       name: i.productName,
       quantity: i.quantity,
@@ -213,18 +247,18 @@ class OrderSheet extends ConsumerWidget {
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => PaymentSheet(
-        total: total,
-        items: items,
-        tableNumber: tableNumber ?? '',
+        total: widget.total,
+        items: widget.items,
+        tableNumber: widget.tableNumber ?? '',
         onPaid: (paymentMethod) async {
           // Generar ticket de cuenta
           final escPosBytes = EscPosGenerator.generateBillTicket(
             orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'bill',
-            tableNumber: tableNumber ?? 'Mesa',
-            items: items.map((i) => i.toOrderItemData()).toList(),
-            subtotal: subtotal,
+            tableNumber: widget.tableNumber ?? 'Mesa',
+            items: widget.items.map((i) => i.toOrderItemData()).toList(),
+            subtotal: widget.subtotal,
             tax: 0,
-            total: total,
+            total: widget.total,
             paymentMethod: paymentMethod,
             createdAt: DateTime.now(),
           );
@@ -232,7 +266,7 @@ class OrderSheet extends ConsumerWidget {
           final escPosHex = EscPosGenerator.bytesToHex(escPosBytes);
 
           // Añadir ticket de cuenta a cola de impresión
-          final printItems = items.map((i) => PrintItemData(
+          final printItems = widget.items.map((i) => PrintItemData(
             productId: i.productId,
             name: i.productName,
             quantity: i.quantity,
@@ -244,7 +278,7 @@ class OrderSheet extends ConsumerWidget {
 
           ref.read(printQueueProvider.notifier).addTicket(
             orderId: ref.read(cartProvider.notifier).currentOrderId ?? 'bill',
-            tableNumber: tableNumber ?? 'Mesa',
+            tableNumber: widget.tableNumber ?? 'Mesa',
             type: PrintType.bill,
             items: printItems,
             notes: paymentMethod,
@@ -270,12 +304,43 @@ class OrderSheet extends ConsumerWidget {
   }
 }
 
-class _OrderItemRow extends ConsumerWidget {
+class _OrderItemRow extends ConsumerStatefulWidget {
   final OrderItemEntity item;
   const _OrderItemRow({required this.item});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_OrderItemRow> createState() => _OrderItemRowState();
+}
+
+class _OrderItemRowState extends ConsumerState<_OrderItemRow> {
+  late final TextEditingController _notesController;
+  final FocusNode _notesFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _notesController = TextEditingController(text: widget.item.notes);
+  }
+
+  @override
+  void didUpdateWidget(covariant _OrderItemRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_notesFocus.hasFocus &&
+        _notesController.text != widget.item.notes) {
+      _notesController.text = widget.item.notes;
+    }
+  }
+
+  @override
+  void dispose() {
+    _notesController.dispose();
+    _notesFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(12)),
@@ -290,7 +355,8 @@ class _OrderItemRow extends ConsumerWidget {
           ),
           const SizedBox(height: 4),
           TextField(
-            controller: TextEditingController(text: item.notes),
+            controller: _notesController,
+            focusNode: _notesFocus,
             onChanged: (v) => ref.read(cartProvider.notifier).updateItemNotes(item.itemId, v),
             decoration: InputDecoration(
               hintText: ' Ej: sin cebolla, poco hecho...',

@@ -1,5 +1,6 @@
 import '../models/product_dto.dart';
 import '../models/category_dto.dart';
+import '../models/ingredient_dto.dart';
 import '../datasources/firebase_firestore_datasource.dart';
 
 class ProductRepository {
@@ -34,5 +35,14 @@ class ProductRepository {
 
   Future<void> deleteProduct(String productId) async {
     await _datasource.deleteProduct(productId);
+  }
+
+  Stream<List<IngredientEntity>> watchIngredients(String venueId) {
+    return _datasource.watchIngredients(venueId);
+  }
+
+  Future<void> saveIngredients(
+      String venueId, List<IngredientEntity> ingredients) async {
+    await _datasource.saveIngredients(venueId, ingredients);
   }
 }
