@@ -15,7 +15,7 @@ TicketGroups splitFoodAndDrinks(List<OrderItemEntity> items) {
   final food = <OrderItemEntity>[];
   final drinks = <OrderItemEntity>[];
   for (final item in items) {
-    if (Constants.drinksCategoryIds.contains(item.categoryId)) {
+    if (Constants.isDrinkItem(item.categoryId, item.categoryName)) {
       drinks.add(item);
     } else {
       food.add(item);

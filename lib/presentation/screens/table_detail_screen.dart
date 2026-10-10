@@ -454,8 +454,13 @@ class _TableDetailScreenState extends ConsumerState<TableDetailScreen>
                   return ProductPickerCard(
                     product: p,
                     onAdd: () {
-                      final hasSharedIngredients =
-                          Constants.ingredientsCategoryIds.contains(p.categoryId);
+                      final catName = cats
+                              ?.where((c) => c.id == p.categoryId)
+                              .map((c) => c.name)
+                              .firstOrNull ??
+                          '';
+                      final hasSharedIngredients = Constants
+                          .usesSharedIngredients(p.categoryId, catName);
                       if (p.modifiers.isNotEmpty || hasSharedIngredients) {
                         showModalBottomSheet(
                           context: context,

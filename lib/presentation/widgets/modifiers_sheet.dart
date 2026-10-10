@@ -24,8 +24,15 @@ class _ModifiersSheetState extends ConsumerState<ModifiersSheet> {
   bool _isTakeaway = false;
 
   /// Categorías que usan la lista global de ingredientes (bocadillos/medios).
-  bool get _usesSharedIngredients =>
-      Constants.ingredientsCategoryIds.contains(widget.product.categoryId);
+  bool get _usesSharedIngredients {
+    final cats = ref.read(categoriesProvider).valueOrNull;
+    final name = cats
+            ?.where((c) => c.id == widget.product.categoryId)
+            .map((c) => c.name)
+            .firstOrNull ??
+        '';
+    return Constants.usesSharedIngredients(widget.product.categoryId, name);
+  }
 
   /// Modificadores propios del producto, excluyendo los "extras" antiguos
   /// cuando se usa la lista global para no duplicar ingredientes.
@@ -53,8 +60,9 @@ class _ModifiersSheetState extends ConsumerState<ModifiersSheet> {
       if (opt != null) total += opt.priceDelta;
     }
     for (final entry in _selectedMulti.entries) {
-      final mod = _productMods
-          .firstWhere((m) => m.modifierId == entry.key);
+      final matches = _productMods.where((m) => m.modifierId == entry.key);
+      if (matches.isEmpty) continue;
+      final mod = matches.first;
       for (final opt in mod.options) {
         if (entry.value.contains(opt.optionId)) total += opt.priceDelta;
       }
@@ -224,9 +232,11 @@ class _ModifiersSheetState extends ConsumerState<ModifiersSheet> {
     final modifiers = <AppliedModifier>[];
     _selectedOptions.forEach((modId, opt) {
       if (opt != null) {
+        final matches = _productMods.where((m) => m.modifierId == modId);
+        if (matches.isEmpty) return;
         modifiers.add(AppliedModifier(
           modifierId: modId,
-          modifierName: _productMods.firstWhere((m) => m.modifierId == modId).name,
+          modifierName: matches.first.name,
           optionId: opt.optionId,
           optionName: opt.name,
           additionalPrice: opt.priceDelta,
@@ -234,8 +244,9 @@ class _ModifiersSheetState extends ConsumerState<ModifiersSheet> {
       }
     });
     for (final entry in _selectedMulti.entries) {
-      final mod = _productMods
-          .firstWhere((m) => m.modifierId == entry.key);
+      final matches = _productMods.where((m) => m.modifierId == entry.key);
+      if (matches.isEmpty) continue;
+      final mod = matches.first;
       for (final opt in mod.options) {
         if (entry.value.contains(opt.optionId)) {
           modifiers.add(AppliedModifier(

@@ -90,8 +90,14 @@ class _ProductGridState extends ConsumerState<ProductGrid> {
   }
 
   void _addToCart(ProductEntity product) {
+    final cats = ref.read(categoriesProvider).valueOrNull;
+    final catName = cats
+            ?.where((c) => c.id == product.categoryId)
+            .map((c) => c.name)
+            .firstOrNull ??
+        '';
     final hasSharedIngredients =
-        Constants.ingredientsCategoryIds.contains(product.categoryId);
+        Constants.usesSharedIngredients(product.categoryId, catName);
     if (product.modifiers.isNotEmpty || hasSharedIngredients) {
       showModalBottomSheet(
         context: context,
@@ -100,7 +106,6 @@ class _ProductGridState extends ConsumerState<ProductGrid> {
       );
       return;
     }
-    final cats = ref.read(categoriesProvider).valueOrNull;
     ref.read(cartProvider.notifier).addItem(OrderItemEntity(
       itemId: 'item_${DateTime.now().millisecondsSinceEpoch}',
       productId: product.id,

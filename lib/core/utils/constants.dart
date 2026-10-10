@@ -1,6 +1,6 @@
 class Constants {
   static const String appName = 'LaSede';
-  static const String appVersion = '1.1.3';
+  static const String appVersion = '1.1.4';
   static const String collectionVenues = 'venues';
   static const String collectionZones = 'zones';
   static const String collectionTables = 'tables';
@@ -39,6 +39,42 @@ class Constants {
     'bocadillos',
     'medios-bocadillos',
   ];
+
+  /// Normaliza un nombre de categoría (minúsculas y sin tildes).
+  static String _normalizeCategory(String s) => s
+      .toLowerCase()
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ü', 'u')
+      .trim();
+
+  /// true si la categoría es de bocadillos (incluye "Medios Bocadillos").
+  /// Se compara por nombre además del id, porque los ids pueden generarse
+  /// automáticamente desde Firestore.
+  static bool isBocadilloCategoryName(String name) =>
+      _normalizeCategory(name).contains('bocadillo');
+
+  /// true si la categoría es de bebidas/varios/cafetería.
+  static bool isDrinksCategoryName(String name) {
+    final n = _normalizeCategory(name);
+    return n == 'bebidas' ||
+        n == 'varios' ||
+        n.contains('cafeter') ||
+        n.contains('bebida');
+  }
+
+  /// ¿El producto usa la lista global de ingredientes extra?
+  static bool usesSharedIngredients(String categoryId, String categoryName) =>
+      ingredientsCategoryIds.contains(categoryId) ||
+      isBocadilloCategoryName(categoryName);
+
+  /// ¿El item es de bebida (para el ticket separado)?
+  static bool isDrinkItem(String categoryId, String categoryName) =>
+      drinksCategoryIds.contains(categoryId) ||
+      isDrinksCategoryName(categoryName);
   static const String methodCard = 'card';
   static const String methodCash = 'cash';
   static const String methodCashNoChange = 'cash_no_change';
