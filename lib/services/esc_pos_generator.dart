@@ -94,10 +94,16 @@ class EscPosGenerator {
 
     // Título
     bytes.addAll(_centerAlign);
+    bytes.addAll(_boldOn);
+    bytes.addAll(_gsSize(2, 2));
     bytes.addAll(_enc('Nuevo pedido\n'));
+    bytes.addAll(_sizeNormal);
+    bytes.addAll(_boldOff);
     if (stationLabel != null && stationLabel.isNotEmpty) {
       bytes.addAll(_boldOn);
+      bytes.addAll(_gsSize(2, 2));
       bytes.addAll(_enc('===== $stationLabel =====\n'));
+      bytes.addAll(_sizeNormal);
       bytes.addAll(_boldOff);
     }
     bytes.addAll(_enc('$_sep\n'));
@@ -122,26 +128,32 @@ class EscPosGenerator {
     for (final item in items) {
       totalPlatos += item.quantity;
       bytes.addAll(_boldOn);
-      bytes.addAll(_gsSize(1, 3));
+      bytes.addAll(_gsSize(2, 3));
       bytes.addAll(_enc('${item.quantity}x ${item.name}\n'));
       bytes.addAll(_sizeNormal);
       bytes.addAll(_boldOff);
 
       for (final mod in item.modifiers) {
+        bytes.addAll(_gsSize(2, 2));
         bytes.addAll(_enc('  + ${mod.name}\n'));
+        bytes.addAll(_sizeNormal);
       }
 
       // Nota del producto (si tiene)
       if (item.notes.isNotEmpty) {
         bytes.addAll(_boldOn);
-        bytes.addAll(_gsSize(1, 2));
+        bytes.addAll(_gsSize(2, 2));
         bytes.addAll(_enc('  >> ${item.notes}\n'));
         bytes.addAll(_sizeNormal);
         bytes.addAll(_boldOff);
       }
 
       if (item.isTakeaway) {
+        bytes.addAll(_boldOn);
+        bytes.addAll(_gsSize(2, 2));
         bytes.addAll(_enc('  *** PARA LLEVAR ***\n'));
+        bytes.addAll(_sizeNormal);
+        bytes.addAll(_boldOff);
       }
 
       bytes.addAll(_enc('\n'));
@@ -155,13 +167,19 @@ class EscPosGenerator {
     if (extraNotes.isNotEmpty) {
       bytes.addAll(_enc('$_sep\n'));
       bytes.addAll(_boldOn);
+      bytes.addAll(_gsSize(2, 2));
       bytes.addAll(_enc('NOTAS:\n'));
-      bytes.addAll(_boldOff);
       bytes.addAll(_enc('$extraNotes\n'));
+      bytes.addAll(_sizeNormal);
+      bytes.addAll(_boldOff);
     }
 
     bytes.addAll(_enc('$_sep\n'));
+    bytes.addAll(_boldOn);
+    bytes.addAll(_gsSize(2, 2));
     bytes.addAll(_enc('Total platos: $totalPlatos\n'));
+    bytes.addAll(_sizeNormal);
+    bytes.addAll(_boldOff);
 
     bytes.addAll(_feedLines);
     bytes.addAll(_cut);
